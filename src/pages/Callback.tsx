@@ -1,16 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
 export default function Callback() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [error, setError] = useState('');
   const [status, setStatus] = useState('Connecting to Linear...');
+  const exchangeStarted = useRef(false);
 
   useEffect(() => {
+    // Guard against React StrictMode double-mount
+    if (exchangeStarted.current) return;
+
     const code = searchParams.get('code');
     const state = searchParams.get('state');
     const savedState = sessionStorage.getItem('linear_oauth_state');
@@ -25,6 +27,7 @@ export default function Callback() {
       return;
     }
 
+    exchangeStarted.current = true;
     sessionStorage.removeItem('linear_oauth_state');
     exchangeToken(code);
   }, [searchParams]);
@@ -33,31 +36,32 @@ export default function Callback() {
     try {
       setStatus('Exchanging authorization code...');
 
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session) {
-        setError('Not authenticated. Please sign in first.');
+      // Refresh session to ensure we have a valid (non-expired) JWT
+      const { error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError) {
+        setError('Session expired. Please sign in again.');
         return;
       }
 
-      // Call Edge Function to exchange code for token
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/linear-oauth-callback`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
+      // Use supabase.functions.invoke — handles auth token automatically
+      // Pass redirect_uri so the edge function uses the same one that initiated the flow
+      const { data, error: fnError } = await supabase.functions.invoke('linear-oauth-callback', {
+        body: {
+          code,
+          state: searchParams.get('state'),
+          redirect_uri: import.meta.env.VITE_LINEAR_REDIRECT_URI,
         },
-        body: JSON.stringify({ code, state: searchParams.get('state') }),
       });
 
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(body.error || `HTTP ${res.status}`);
+      if (fnError) {
+        throw new Error(fnError.message || 'Edge function error');
+      }
+
+      if (data?.error) {
+        throw new Error(data.error);
       }
 
       setStatus('Connected! Redirecting...');
-      // Small delay so user sees success
       setTimeout(() => navigate('/app', { replace: true }), 500);
     } catch (err) {
       setError((err as Error).message);

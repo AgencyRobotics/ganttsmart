@@ -21,7 +21,7 @@ function GanttView({
   onSignOut,
 }: {
   linearToken: string;
-  onDisconnectLinear: () => void;
+  onDisconnectLinear: () => void | Promise<void>;
   onSignOut: () => void;
 }) {
   const { theme, setTheme } = useTheme();
@@ -54,7 +54,7 @@ function GanttView({
     reschedule,
     rescheduleStart,
     cycleStatus,
-  } = useLinearData(linearToken);
+  } = useLinearData(linearToken, onDisconnectLinear);
 
   // Keyboard shortcuts
   useEffect(() => {

@@ -1,0 +1,7 @@
+[functions.linear-oauth-callback]
+# Disable gateway JWT verification — the function handles auth internally
+verify_jwt = false
+
+[functions.share-roadmap]
+# Disable gateway JWT verification — the function handles auth internally
+verify_jwt = false

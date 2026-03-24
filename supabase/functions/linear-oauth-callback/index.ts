@@ -37,7 +37,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const { code, state } = await req.json();
+    const { code, state, redirect_uri } = await req.json();
     if (!code) {
       return new Response(JSON.stringify({ error: "Missing authorization code" }), {
         status: 400,
@@ -53,6 +53,17 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // Validate redirect_uri against allowed origins to prevent open redirect
+    const ALLOWED_REDIRECT_URIS = [
+      LINEAR_REDIRECT_URI,
+      "http://localhost:5173/callback",
+      "http://localhost:3000/callback",
+    ].filter(Boolean);
+
+    const effectiveRedirectUri = redirect_uri && ALLOWED_REDIRECT_URIS.includes(redirect_uri)
+      ? redirect_uri
+      : LINEAR_REDIRECT_URI;
+
     const tokenRes = await fetch("https://api.linear.app/oauth/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -61,7 +72,7 @@ Deno.serve(async (req: Request) => {
         code,
         client_id: LINEAR_CLIENT_ID,
         client_secret: LINEAR_CLIENT_SECRET,
-        redirect_uri: LINEAR_REDIRECT_URI,
+        redirect_uri: effectiveRedirectUri,
       }),
     });
 

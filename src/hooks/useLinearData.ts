@@ -15,7 +15,7 @@ import type { Filters, GroupBy, Milestone, Project, Task, WorkflowState } from '
 const DEFAULT_PRIORITIES = new Set([0, 1, 2, 3, 4]);
 const POLL_INTERVAL_MS = 30_000; // 30 seconds
 
-export function useLinearData(linearToken: string) {
+export function useLinearData(linearToken: string, onAuthError?: () => void) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState(
     () => localStorage.getItem('linear_selected_project') || '',
@@ -81,7 +81,13 @@ export function useLinearData(linearToken: string) {
       setProjects(p);
       return p;
     } catch (e) {
-      toastError(`Failed to load projects: ${(e as Error).message}`);
+      const msg = (e as Error).message;
+      if (msg.includes('authentication expired')) {
+        toastError('Linear session expired. Reconnecting...');
+        onAuthError?.();
+        return [];
+      }
+      toastError(`Failed to load projects: ${msg}`);
       throw e;
     }
   }, [linearToken]);
@@ -99,8 +105,11 @@ export function useLinearData(linearToken: string) {
         setProjectName(result.projectName);
         setMilestones(result.milestones);
         setLastSynced(new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
-      } catch {
-        // Silent — don't spam toasts on poll failures
+      } catch (e) {
+        // Auto-disconnect on auth expiry, otherwise silent
+        if ((e as Error).message?.includes('authentication expired')) {
+          onAuthError?.();
+        }
       }
     },
     [linearToken],
@@ -132,6 +141,11 @@ export function useLinearData(linearToken: string) {
         setTasks([]);
         setDoneTasks([]);
         setMilestones([]);
+        if (msg.includes('authentication expired')) {
+          toastError('Linear session expired. Reconnecting...');
+          onAuthError?.();
+          return;
+        }
         toastError(`Failed to load issues: ${msg}`, () => loadIssues(projectId));
       } finally {
         setLoading(false);

@@ -3,20 +3,11 @@ import { supabase } from '@/lib/supabase';
 import { toast, toastError, toastSuccess } from './Toast';
 
 async function invokeShareFn(action: string, body: Record<string, unknown>) {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/share-roadmap`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${session?.access_token}`,
-      apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-    },
-    body: JSON.stringify({ action, ...body }),
+  const { data, error } = await supabase.functions.invoke('share-roadmap', {
+    body: { action, ...body },
   });
-  const data = await res.json();
-  if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+  if (error) throw new Error(error.message || 'Edge function error');
+  if (data?.error) throw new Error(data.error);
   return data;
 }
 
