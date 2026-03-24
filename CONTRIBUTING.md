@@ -39,12 +39,6 @@ Open an issue with:
 - Browser and OS info
 - Screenshots if applicable
 
-## Code Style
-
-- Follow the existing patterns in the codebase
-- Use TypeScript — avoid `any`
-- Prefer functional components and hooks
-
 ## License
 
 By contributing, you agree that your contributions will be licensed under the [AGPL-3.0 License](LICENSE).
