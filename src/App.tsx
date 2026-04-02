@@ -9,7 +9,7 @@ import Onboarding from '@/components/Onboarding';
 import StatsRow from '@/components/StatsRow';
 import ToastContainer from '@/components/Toast';
 import Toolbar from '@/components/Toolbar';
-import DetailPanel from '@/components/DetailPanel';
+import DetailPanel, { setRemoveRelationHandler } from '@/components/DetailPanel';
 import { useAuth } from '@/hooks/useAuth';
 import { useLinearData } from '@/hooks/useLinearData';
 import { useTheme } from '@/hooks/useTheme';
@@ -54,7 +54,15 @@ function GanttView({
     reschedule,
     rescheduleStart,
     cycleStatus,
+    createRelation,
+    removeRelation,
   } = useLinearData(linearToken, onDisconnectLinear);
+
+  // Register the remove handler for DetailPanel's × buttons
+  useEffect(() => {
+    setRemoveRelationHandler(removeRelation);
+    return () => setRemoveRelationHandler(null);
+  }, [removeRelation]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -140,6 +148,7 @@ function GanttView({
         onReschedule={reschedule}
         onRescheduleStart={rescheduleStart}
         onCycleStatus={cycleStatus}
+        onCreateRelation={createRelation}
       />
       <DetailPanel />
       <ToastContainer />

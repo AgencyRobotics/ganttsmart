@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GroupBy, Milestone, Task } from '@/types';
 import { Avatar } from '@/utils/avatar';
 import { daysBetween, isWeekend } from '@/utils/date';
@@ -16,6 +16,7 @@ interface Props {
   onReschedule?: (taskUuid: string, newDueDate: string) => Promise<void>;
   onRescheduleStart?: (taskUuid: string, newStartDate: string) => Promise<void>;
   onCycleStatus?: (taskUuid: string) => Promise<void>;
+  onCreateRelation?: (sourceTaskId: string, targetTaskId: string) => Promise<void>;
 }
 
 export interface ColumnWidths {
@@ -89,12 +90,115 @@ export default function GanttChart({
   onReschedule,
   onRescheduleStart,
   onCycleStatus,
+  onCreateRelation,
 }: Props) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [doneVisible, setDoneVisible] = useState(false);
   const [colWidths, setColWidths] = useState<ColumnWidths>(DEFAULT_WIDTHS);
   const ganttRef = useRef<HTMLDivElement>(null);
   const baseWidthsRef = useRef<ColumnWidths>(DEFAULT_WIDTHS);
+
+  // Connection drag state (imperative for performance — no re-renders during mousemove)
+  const innerRef = useRef<HTMLDivElement>(null);
+  const connectionSvgRef = useRef<SVGSVGElement>(null);
+  const connectionPathRef = useRef<SVGPathElement>(null);
+  const connectingFromRef = useRef<string | null>(null);
+  const connectingSourcePos = useRef<{ x: number; y: number } | null>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
+
+  const handleConnectStart = useCallback(
+    (taskId: string, _e: React.MouseEvent) => {
+      const container = innerRef.current;
+      if (!container) return;
+
+      connectingFromRef.current = taskId;
+      setIsConnecting(true);
+
+      // Find source bar position
+      const bar = container.querySelector(`[data-task-bar="${taskId}"]`) as HTMLElement | null;
+      if (!bar) return;
+      const containerRect = container.getBoundingClientRect();
+      const barRect = bar.getBoundingClientRect();
+      connectingSourcePos.current = {
+        x: barRect.right - containerRect.left,
+        y: barRect.top + barRect.height / 2 - containerRect.top,
+      };
+
+      // Show connection SVG
+      const svg = connectionSvgRef.current;
+      if (svg) {
+        svg.style.display = '';
+        svg.setAttribute('width', String(container.scrollWidth));
+        svg.setAttribute('height', String(container.scrollHeight));
+      }
+
+      document.body.style.cursor = 'crosshair';
+
+      const onMove = (ev: MouseEvent) => {
+        const src = connectingSourcePos.current;
+        const path = connectionPathRef.current;
+        if (!src || !path || !container) return;
+
+        const rect = container.getBoundingClientRect();
+        const mx = ev.clientX - rect.left;
+        const my = ev.clientY - rect.top;
+
+        const dx = mx - src.x;
+        const cx = Math.min(Math.max(Math.abs(dx) * 0.4, 20), 60);
+        const d =
+          dx > 30
+            ? `M ${src.x} ${src.y} C ${src.x + cx} ${src.y}, ${mx - cx} ${my}, ${mx} ${my}`
+            : `M ${src.x} ${src.y} C ${src.x + 40} ${src.y}, ${src.x + 40} ${(src.y + my) / 2}, ${(src.x + mx) / 2} ${(src.y + my) / 2} S ${mx - 40} ${my}, ${mx} ${my}`;
+        path.setAttribute('d', d);
+
+        // Highlight target bar under cursor
+        const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
+        const targetBar = el?.closest('[data-task-bar]') as HTMLElement | null;
+        container.querySelectorAll('[data-task-bar]').forEach((b) => b.classList.remove('ring-2', 'ring-accent'));
+        if (targetBar && targetBar.getAttribute('data-task-bar') !== taskId) {
+          targetBar.classList.add('ring-2', 'ring-accent');
+        }
+      };
+
+      const onUp = (ev: MouseEvent) => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        document.body.style.cursor = '';
+
+        // Clean up highlights
+        container.querySelectorAll('[data-task-bar]').forEach((b) => b.classList.remove('ring-2', 'ring-accent'));
+
+        // Hide connection SVG
+        const svg = connectionSvgRef.current;
+        if (svg) svg.style.display = 'none';
+
+        // Check if dropped on a valid target
+        const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
+        const targetBar = el?.closest('[data-task-bar]') as HTMLElement | null;
+        const targetId = targetBar?.getAttribute('data-task-bar');
+
+        connectingFromRef.current = null;
+        connectingSourcePos.current = null;
+        setIsConnecting(false);
+
+        if (targetId && targetId !== taskId && onCreateRelation) {
+          // Source blocks target
+          onCreateRelation(taskId, targetId);
+        }
+      };
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    },
+    [onCreateRelation],
+  );
+
+  // Clean up connection state on unmount
+  useEffect(() => {
+    return () => {
+      document.body.style.cursor = '';
+    };
+  }, []);
 
   const toggleCollapse = (key: string) => {
     setCollapsed((prev) => {
@@ -135,6 +239,28 @@ export default function GanttChart({
     d.setHours(0, 0, 0, 0);
     return d;
   }, [tasks]); // recompute when tasks change (new day boundary)
+
+  // Detect dependency violations: blocked task starts before blocker is due
+  const depViolations = useMemo(() => {
+    const violations = new Map<string, string[]>(); // taskId → list of violated blocker descriptions
+    const taskMap = new Map(tasks.map((t) => [t.id, t]));
+
+    for (const task of tasks) {
+      if (task.blockedBy.length === 0) continue;
+      const taskStart = task.startDate ? new Date(task.startDate + 'T00:00:00') : today;
+
+      for (const blockerId of task.blockedBy) {
+        const blocker = taskMap.get(blockerId);
+        if (!blocker) continue;
+        const blockerDue = new Date(blocker.due + 'T00:00:00');
+        if (taskStart < blockerDue) {
+          if (!violations.has(task.id)) violations.set(task.id, []);
+          violations.get(task.id)!.push(blockerId);
+        }
+      }
+    }
+    return violations;
+  }, [tasks, today]);
 
   const { chartStart, totalDays } = useMemo(() => {
     if (!tasks.length) return { chartStart: today, totalDays: 0 };
@@ -304,7 +430,7 @@ export default function GanttChart({
       id="gantt-export-target"
       className="bg-bg-card rounded-xl border border-border-primary overflow-x-auto print:overflow-visible print:border-0"
     >
-      <div className="relative" style={{ minWidth: '100%' }}>
+      <div ref={innerRef} className="relative" style={{ minWidth: '100%' }}>
         <table className="border-collapse" style={{ width: fixedColsWidth + totalDays * dayWidth }}>
           <thead>
             <tr>
@@ -393,21 +519,39 @@ export default function GanttChart({
                 onReschedule={onReschedule}
                 onRescheduleStart={onRescheduleStart}
                 onCycleStatus={onCycleStatus}
+                onConnectStart={onCreateRelation ? handleConnectStart : undefined}
+                isConnecting={isConnecting}
+                depViolations={depViolations}
               />
             ))}
           </tbody>
         </table>
 
         {groupBy === 'none' && (
-          <DependencyArrows
-            tasks={tasks}
-            chartStart={chartStart}
-            today={today}
-            dayWidth={dayWidth}
-            totalDays={totalDays}
-            fixedColsWidth={fixedColsWidth}
-          />
+          <DependencyArrows tasks={tasks} containerRef={innerRef} depViolations={depViolations} />
         )}
+
+        {/* Connection line overlay — updated imperatively during drag for performance */}
+        <svg
+          ref={connectionSvgRef}
+          className="absolute top-0 left-0 pointer-events-none z-[4]"
+          style={{ display: 'none', overflow: 'visible' }}
+        >
+          <defs>
+            <marker id="dep-arrow-temp" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#58a6ff" opacity="0.9" />
+            </marker>
+          </defs>
+          <path
+            ref={connectionPathRef}
+            fill="none"
+            stroke="#58a6ff"
+            strokeWidth="2"
+            strokeDasharray="8 4"
+            opacity="0.8"
+            markerEnd="url(#dep-arrow-temp)"
+          />
+        </svg>
       </div>
 
       {/* Completed tasks section */}
@@ -480,6 +624,9 @@ function GroupRows({
   onReschedule,
   onRescheduleStart,
   onCycleStatus,
+  onConnectStart,
+  isConnecting,
+  depViolations,
 }: {
   group: { key: string; label: string; tasks: Task[] };
   groupBy: GroupBy;
@@ -494,6 +641,9 @@ function GroupRows({
   onReschedule?: (taskUuid: string, newDueDate: string) => Promise<void>;
   onRescheduleStart?: (taskUuid: string, newStartDate: string) => Promise<void>;
   onCycleStatus?: (taskUuid: string) => Promise<void>;
+  onConnectStart?: (taskId: string, e: React.MouseEvent) => void;
+  isConnecting?: boolean;
+  depViolations?: Map<string, string[]>;
 }) {
   return (
     <>
@@ -538,6 +688,9 @@ function GroupRows({
             onReschedule={onReschedule}
             onRescheduleStart={onRescheduleStart}
             onCycleStatus={onCycleStatus}
+            onConnectStart={onConnectStart}
+            isConnecting={isConnecting}
+            depViolation={depViolations?.get(task.id)}
           />
         ))}
     </>

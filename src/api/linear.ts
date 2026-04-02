@@ -420,6 +420,54 @@ export async function updateIssueState(apiKey: string, issueId: string, stateId:
   );
 }
 
+export async function createIssueRelation(
+  apiKey: string,
+  issueId: string,
+  relatedIssueId: string,
+): Promise<void> {
+  await gql(
+    apiKey,
+    `mutation($issueId: String!, $relatedIssueId: String!) {
+      issueRelationCreate(input: { issueId: $issueId, relatedIssueId: $relatedIssueId, type: blocks }) {
+        success
+      }
+    }`,
+    { issueId, relatedIssueId },
+  );
+}
+
+export async function removeIssueRelation(apiKey: string, issueId: string, relatedIssueId: string): Promise<void> {
+  // First find the relation ID, then delete it
+  const data = await gql(
+    apiKey,
+    `query($id: String!) {
+      issue(id: $id) {
+        relations {
+          nodes {
+            id
+            type
+            relatedIssue { id }
+          }
+        }
+      }
+    }`,
+    { id: issueId },
+  );
+  const issue = data.issue as { relations: { nodes: Array<{ id: string; type: string; relatedIssue: { id: string } }> } };
+  const relation = issue.relations.nodes.find(
+    (r) => r.type === 'blocks' && r.relatedIssue.id === relatedIssueId,
+  );
+  if (!relation) return;
+
+  await gql(
+    apiKey,
+    `mutation($id: String!) {
+      issueRelationDelete(id: $id) { success }
+    }`,
+    { id: relation.id },
+  );
+}
+
 export async function fetchWorkflowStates(apiKey: string, teamId: string): Promise<WorkflowState[]> {
   const data = await gql(
     apiKey,

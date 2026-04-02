@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DebounceCancelled,
+  createIssueRelation,
+  removeIssueRelation,
   fetchIssues,
   fetchProjects,
   fetchWorkflowStates,
@@ -282,6 +284,87 @@ export function useLinearData(linearToken: string, onAuthError?: () => void) {
     [linearToken, workflowStates, tasks, pushUndo],
   );
 
+  // Create a "blocks" relation between two tasks
+  const createRelation = useCallback(
+    async (sourceTaskId: string, targetTaskId: string) => {
+      if (!linearToken) return;
+
+      const sourceTask = tasks.find((t) => t.id === sourceTaskId);
+      const targetTask = tasks.find((t) => t.id === targetTaskId);
+      if (!sourceTask || !targetTask) return;
+
+      // Prevent duplicate
+      if (sourceTask.blocks.includes(targetTaskId)) {
+        toast(`${sourceTaskId} already blocks ${targetTaskId}`, 'info');
+        return;
+      }
+
+      // Prevent circular
+      if (targetTask.blocks.includes(sourceTaskId)) {
+        toastError(`Cannot create circular dependency: ${targetTaskId} already blocks ${sourceTaskId}`);
+        return;
+      }
+
+      const prevTasks = tasks;
+      // Optimistic update
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id === sourceTaskId) return { ...t, blocks: [...t.blocks, targetTaskId] };
+          if (t.id === targetTaskId) return { ...t, blockedBy: [...t.blockedBy, sourceTaskId] };
+          return t;
+        }),
+      );
+
+      pendingMutations.current++;
+      try {
+        await createIssueRelation(linearToken, sourceTask.uuid, targetTask.uuid);
+        pushUndo(prevTasks, `${sourceTaskId} blocks ${targetTaskId}`);
+        toastSuccess(`${sourceTaskId} now blocks ${targetTaskId}`);
+      } catch (e) {
+        setTasks(prevTasks);
+        toastError(`Failed to create relation: ${(e as Error).message}`);
+      } finally {
+        pendingMutations.current--;
+      }
+    },
+    [linearToken, tasks, pushUndo],
+  );
+
+  // Remove a "blocks" relation between two tasks
+  // sourceTaskId = blocker identifier, targetTaskId = blocked identifier
+  const removeRelation = useCallback(
+    async (sourceTaskId: string, targetTaskId: string) => {
+      if (!linearToken) return;
+
+      const sourceTask = tasks.find((t) => t.id === sourceTaskId);
+      const targetTask = tasks.find((t) => t.id === targetTaskId);
+      if (!sourceTask || !targetTask) return;
+
+      const prevTasks = tasks;
+      // Optimistic update
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id === sourceTaskId) return { ...t, blocks: t.blocks.filter((id) => id !== targetTaskId) };
+          if (t.id === targetTaskId) return { ...t, blockedBy: t.blockedBy.filter((id) => id !== sourceTaskId) };
+          return t;
+        }),
+      );
+
+      pendingMutations.current++;
+      try {
+        await removeIssueRelation(linearToken, sourceTask.uuid, targetTask.uuid);
+        pushUndo(prevTasks, `${sourceTaskId} no longer blocks ${targetTaskId}`);
+        toastSuccess(`Removed: ${sourceTaskId} → ${targetTaskId}`);
+      } catch (e) {
+        setTasks(prevTasks);
+        toastError(`Failed to remove relation: ${(e as Error).message}`);
+      } finally {
+        pendingMutations.current--;
+      }
+    },
+    [linearToken, tasks, pushUndo],
+  );
+
   // Initial load when token is available
   useEffect(() => {
     if (!linearToken || initialLoadDone.current) return;
@@ -371,6 +454,8 @@ export function useLinearData(linearToken: string, onAuthError?: () => void) {
     reschedule,
     rescheduleStart,
     cycleStatus,
+    createRelation,
+    removeRelation,
     undo,
   };
 }

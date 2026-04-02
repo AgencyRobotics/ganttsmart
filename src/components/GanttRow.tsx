@@ -24,6 +24,9 @@ interface Props {
   onReschedule?: (taskUuid: string, newDueDate: string) => Promise<void>;
   onRescheduleStart?: (taskUuid: string, newStartDate: string) => Promise<void>;
   onCycleStatus?: (taskUuid: string) => Promise<void>;
+  onConnectStart?: (taskId: string, e: React.MouseEvent) => void;
+  isConnecting?: boolean;
+  depViolation?: string[]; // list of blocker IDs whose schedule is violated
   isDone?: boolean;
 }
 
@@ -75,6 +78,9 @@ export default function GanttRow({
   onReschedule,
   onRescheduleStart,
   onCycleStatus,
+  onConnectStart,
+  isConnecting,
+  depViolation,
   isDone,
 }: Props) {
   const pCls = priorityClass(task.priorityVal);
@@ -339,6 +345,7 @@ export default function GanttRow({
 
   return (
     <tr
+      data-task-id={task.id}
       className="transition-colors duration-150 hover:bg-accent/[0.03] border-l-2 border-l-transparent hover:border-l-accent focus-within:bg-accent/[0.04] focus-within:border-l-accent"
       tabIndex={0}
       role="row"
@@ -398,6 +405,16 @@ export default function GanttRow({
                 >
                   <path d="M4.5 2A2.5 2.5 0 002 4.5v1a.5.5 0 001 0v-1A1.5 1.5 0 014.5 3h1a.5.5 0 000-1h-1zm6 0a.5.5 0 000 1h1A1.5 1.5 0 0113 4.5v1a.5.5 0 001 0v-1A2.5 2.5 0 0011.5 2h-1zm-8 8a.5.5 0 01.5.5v1A1.5 1.5 0 004.5 13h1a.5.5 0 010 1h-1A2.5 2.5 0 012 11.5v-1a.5.5 0 01.5-.5zm11 0a.5.5 0 01.5.5v1a2.5 2.5 0 01-2.5 2.5h-1a.5.5 0 010-1h1a1.5 1.5 0 001.5-1.5v-1a.5.5 0 01.5-.5z" />
                 </svg>
+              )}
+              {depViolation && depViolation.length > 0 && (
+                <span
+                  className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-[#f0883e] bg-[#f0883e]/10 rounded px-1 py-[1px] shrink-0 cursor-help"
+                  title={`Starts before ${depViolation.length === 1 ? depViolation[0] + ' is' : depViolation.join(', ') + ' are'} due — dependency may be violated`}
+                >
+                  <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8.893 1.5c-.183-.31-.52-.5-.887-.5s-.703.19-.886.5L.138 13.499a.98.98 0 00.016 1.001c.184.31.524.5.893.5h13.906c.37 0 .709-.19.893-.5a.98.98 0 00.016-1.001L8.893 1.5zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 01-1.1 0L7.1 5.995A.905.905 0 018 5zm.002 6.5a.75.75 0 110 1.5.75.75 0 010-1.5z" />
+                  </svg>
+                </span>
               )}
             </div>
             <div
@@ -481,7 +498,8 @@ export default function GanttRow({
 
           {/* Main bar */}
           <div
-            className={`gantt-bar absolute h-[26px] rounded-md top-[3px] flex items-center ${barIsNarrow ? 'justify-center' : 'justify-end pr-2'} text-[10px] font-semibold text-white/70 z-[2] min-w-[20px] transition-[filter,transform] duration-150 hover:brightness-120 hover:scale-y-110 ${isDone ? 'bar-done' : overdue ? 'bar-overdue animate-pulse-bar' : `bar-${pCls}`} ${isAnyDrag ? '!transition-none !transform-none opacity-80' : ''} ${onReschedule || onRescheduleStart ? (isMoving ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-pointer'}`}
+            data-task-bar={task.id}
+            className={`gantt-bar group/bar absolute h-[26px] rounded-md top-[3px] flex items-center ${barIsNarrow ? 'justify-center' : 'justify-end pr-2'} text-[10px] font-semibold text-white/70 z-[2] min-w-[20px] transition-[filter,transform] duration-150 hover:brightness-120 hover:scale-y-110 ${isDone ? 'bar-done' : overdue ? 'bar-overdue animate-pulse-bar' : `bar-${pCls}`} ${isAnyDrag ? '!transition-none !transform-none opacity-80' : ''} ${isConnecting ? 'ring-2 ring-accent/40 ring-offset-1 ring-offset-transparent' : ''} ${onReschedule || onRescheduleStart ? (isMoving ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-pointer'}`}
             style={{
               left: displayBarLeft,
               width: displayBarWidth,
@@ -524,6 +542,20 @@ export default function GanttRow({
                 className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize z-[3] hover:bg-white/20 rounded-r-md"
                 onMouseDown={handleDragStart}
                 onClick={(e) => e.stopPropagation()}
+              />
+            )}
+
+            {/* Connection dot — drag from here to another bar to create a "blocks" relation */}
+            {onConnectStart && !isDone && (
+              <div
+                className="absolute -right-[7px] top-1/2 -translate-y-1/2 w-[14px] h-[14px] rounded-full bg-accent border-2 border-bg-card opacity-0 group-hover/bar:opacity-100 cursor-crosshair z-[5] transition-opacity hover:scale-125 hover:opacity-100"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onConnectStart(task.id, e);
+                }}
+                onClick={(e) => e.stopPropagation()}
+                title="Drag to another task to create a dependency"
               />
             )}
           </div>
