@@ -146,6 +146,12 @@ export default function GanttRow({
     barWidth = Math.max((barEndDay - barStartDay + 1) * dayWidth, dayWidth);
   }
 
+  // Clamp bar to visible chart area (don't overflow left into fixed columns)
+  if (barLeft < 0) {
+    barWidth = Math.max(barWidth + barLeft, dayWidth);
+    barLeft = 0;
+  }
+
   // Apply due date drag (extends/shrinks right edge), start drag (moves left edge), or whole-bar move
   const displayBarWidth = Math.max(barWidth + dragDelta - startDragDelta, dayWidth);
   const displayBarLeft = barLeft + startDragDelta + moveDelta;
