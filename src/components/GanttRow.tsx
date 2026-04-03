@@ -551,12 +551,14 @@ export default function GanttRow({
             />
           )}
 
+          {/* Bar wrapper — groups bar + connector dot for shared hover state */}
+          <div className="group/bar absolute top-0 h-full" style={{ left: displayBarLeft, width: displayBarWidth + 20 }}>
           {/* Main bar */}
           <div
             data-task-bar={task.id}
-            className={`gantt-bar group/bar absolute h-[26px] rounded-md top-[3px] flex items-center ${barIsNarrow ? 'justify-center' : 'justify-end pr-2'} text-[10px] font-semibold text-white/70 z-[2] min-w-[20px] transition-[filter,transform] duration-150 hover:brightness-120 hover:scale-y-110 ${isDone ? 'bar-done' : overdue ? 'bar-overdue animate-pulse-bar' : `bar-${pCls}`} ${isAnyDrag ? '!transition-none !transform-none opacity-80' : ''} ${isConnecting ? 'ring-2 ring-accent/40 ring-offset-1 ring-offset-transparent' : ''} ${onReschedule || onRescheduleStart ? (isMoving ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-pointer'}`}
+            className={`gantt-bar absolute h-[26px] rounded-md top-[3px] flex items-center ${barIsNarrow ? 'justify-center' : 'justify-end pr-2'} text-[10px] font-semibold text-white/70 z-[2] min-w-[20px] transition-[filter,transform] duration-150 hover:brightness-120 hover:scale-y-110 ${isDone ? 'bar-done' : overdue ? 'bar-overdue animate-pulse-bar' : `bar-${pCls}`} ${isAnyDrag ? '!transition-none !transform-none opacity-80' : ''} ${isConnecting ? 'ring-2 ring-accent/40 ring-offset-1 ring-offset-transparent' : ''} ${onReschedule || onRescheduleStart ? (isMoving ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-pointer'}`}
             style={{
-              left: displayBarLeft,
+              left: 0,
               width: displayBarWidth,
               background: isDone
                 ? 'linear-gradient(135deg, #1a7f37, #2ea043)'
@@ -600,19 +602,25 @@ export default function GanttRow({
               />
             )}
 
-            {/* Connection dot — drag from here to another bar to create a "blocks" relation */}
-            {onConnectStart && !isDone && (
-              <div
-                className="absolute -right-[7px] top-1/2 -translate-y-1/2 w-[14px] h-[14px] rounded-full bg-accent border-2 border-bg-card opacity-0 group-hover/bar:opacity-100 cursor-crosshair z-[5] transition-opacity hover:scale-125 hover:opacity-100"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onConnectStart(task.id, e);
-                }}
-                onClick={(e) => e.stopPropagation()}
-                title="Drag to another task to create a dependency"
-              />
-            )}
+          </div>
+
+          {/* Connection dot — outside bar div to avoid overflow:hidden clipping */}
+          {onConnectStart && !isDone && (
+            <div
+              className="absolute w-[12px] h-[12px] rounded-full bg-accent border-2 border-bg-card opacity-0 group-hover/bar:opacity-100 cursor-crosshair z-[5] transition-opacity hover:scale-125"
+              style={{
+                left: displayBarWidth + 4,
+                top: 3 + 13 - 6,
+              }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onConnectStart(task.id, e);
+              }}
+              onClick={(e) => e.stopPropagation()}
+              title="Drag to another task to create a dependency"
+            />
+          )}
           </div>
 
           {/* Floating label for narrow bars — positioned to the right of the bar */}
