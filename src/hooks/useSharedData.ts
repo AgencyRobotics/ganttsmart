@@ -21,6 +21,8 @@ export function useSharedData(shareToken: string) {
     status: '',
     priorities: new Set(DEFAULT_PRIORITIES),
     search: '',
+    dateFrom: '',
+    dateTo: '',
   });
 
   const assignees = useMemo(() => [...new Set(tasks.map((t) => t.assignee))].sort(), [tasks]);

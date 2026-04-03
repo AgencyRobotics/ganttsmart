@@ -3,6 +3,7 @@ import type { Filters, GroupBy, Project } from '@/types';
 import { Avatar } from '@/utils/avatar';
 import CustomDropdown from './CustomDropdown';
 import type { DropdownOption } from './CustomDropdown';
+import DateRangePicker from './DateRangePicker';
 
 interface Props {
   projects: Project[];
@@ -136,7 +137,7 @@ export default function FilterBar({
     onFiltersChange({ ...filters, priorities: next });
   };
 
-  const isFiltered = filters.assignee || filters.status || filters.search || filters.priorities.size < 5;
+  const isFiltered = filters.assignee || filters.status || filters.search || filters.priorities.size < 5 || filters.dateFrom || filters.dateTo;
 
   // Build dropdown options
   const projectOptions: DropdownOption[] = useMemo(
@@ -234,6 +235,15 @@ export default function FilterBar({
         <option value="priority">Priority</option>
         <option value="status">Status</option>
       </select>
+
+      <div className="w-px h-5 bg-border-secondary/50 mx-1 hidden lg:block" />
+
+      {/* Date range */}
+      <DateRangePicker
+        from={filters.dateFrom}
+        to={filters.dateTo}
+        onChange={(dateFrom, dateTo) => onFiltersChange({ ...filters, dateFrom, dateTo })}
+      />
 
       <div className="w-px h-5 bg-border-secondary/50 mx-1 hidden lg:block" />
 

@@ -19,6 +19,8 @@ interface Props {
   onCycleStatus?: (taskUuid: string) => Promise<void>;
   onCreateRelation?: (sourceTaskId: string, targetTaskId: string) => Promise<void>;
   baselines?: Map<string, TaskBaseline>;
+  dateFrom?: string;
+  dateTo?: string;
 }
 
 export interface ColumnWidths {
@@ -94,6 +96,8 @@ export default function GanttChart({
                                      onCycleStatus,
                                      onCreateRelation,
                                      baselines,
+                                     dateFrom,
+                                     dateTo,
                                    }: Props) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [doneVisible, setDoneVisible] = useState(false);
@@ -279,21 +283,33 @@ export default function GanttChart({
   const {chartStart, totalDays} = useMemo(() => {
     if (!tasks.length) return {chartStart: today, totalDays: 0};
 
-    const allDates: number[] = [today.getTime()];
-    tasks.forEach((t) => {
-      allDates.push(new Date(t.due + 'T00:00:00').getTime());
-      if (t.startDate) allDates.push(new Date(t.startDate + 'T00:00:00').getTime());
-    });
-    milestones.forEach((m) => {
-      if (m.targetDate) allDates.push(new Date(m.targetDate + 'T00:00:00').getTime());
-    });
+    // If user set explicit date range, use it
+    const hasDateRange = dateFrom && dateTo;
 
-    const minDate = new Date(Math.min(...allDates));
-    const maxDate = new Date(Math.max(...allDates));
-    const chartStart = new Date(minDate);
-    chartStart.setDate(chartStart.getDate() - 2);
-    const chartEnd = new Date(maxDate);
-    chartEnd.setDate(chartEnd.getDate() + 3);
+    let chartStart: Date;
+    let chartEnd: Date;
+
+    if (hasDateRange) {
+      chartStart = new Date(dateFrom + 'T00:00:00');
+      chartEnd = new Date(dateTo + 'T00:00:00');
+    } else {
+      const allDates: number[] = [today.getTime()];
+      tasks.forEach((t) => {
+        allDates.push(new Date(t.due + 'T00:00:00').getTime());
+        if (t.startDate) allDates.push(new Date(t.startDate + 'T00:00:00').getTime());
+      });
+      milestones.forEach((m) => {
+        if (m.targetDate) allDates.push(new Date(m.targetDate + 'T00:00:00').getTime());
+      });
+
+      const minDate = new Date(Math.min(...allDates));
+      const maxDate = new Date(Math.max(...allDates));
+      chartStart = new Date(minDate);
+      chartStart.setDate(chartStart.getDate() - 2);
+      chartEnd = new Date(maxDate);
+      chartEnd.setDate(chartEnd.getDate() + 3);
+    }
+
     const dataDays = daysBetween(chartStart, chartEnd);
 
     const fixedCols = colWidths.task + colWidths.priority + colWidths.due;
@@ -302,7 +318,7 @@ export default function GanttChart({
     const totalDays = Math.max(dataDays, minDaysToFill);
 
     return {chartStart, totalDays};
-  }, [tasks, milestones, today, colWidths, dayWidth]);
+  }, [tasks, milestones, today, colWidths, dayWidth, dateFrom, dateTo]);
 
   // Calendar header (memoized)
   const {months, daysCells} = useMemo(() => {

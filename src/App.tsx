@@ -194,6 +194,8 @@ function GanttView({
         onCycleStatus={cycleStatusWithHistory}
         onCreateRelation={createRelation}
         baselines={baselines}
+        dateFrom={filters.dateFrom}
+        dateTo={filters.dateTo}
       />
       <DetailPanel />
       <ToastContainer />

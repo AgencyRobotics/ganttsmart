@@ -57,4 +57,6 @@ export interface Filters {
   status: string;
   priorities: Set<number>;
   search: string;
+  dateFrom: string;
+  dateTo: string;
 }
