@@ -37,6 +37,8 @@ export function useLinearData(linearToken: string, onAuthError?: () => void) {
     status: '',
     priorities: new Set(DEFAULT_PRIORITIES),
     search: '',
+    dateFrom: '',
+    dateTo: '',
   });
 
   const initialLoadDone = useRef(false);
@@ -160,7 +162,7 @@ export function useLinearData(linearToken: string, onAuthError?: () => void) {
     (id: string) => {
       setSelectedProjectId(id);
       localStorage.setItem('linear_selected_project', id);
-      setFilters({ assignee: '', status: '', priorities: new Set(DEFAULT_PRIORITIES), search: '' });
+      setFilters({ assignee: '', status: '', priorities: new Set(DEFAULT_PRIORITIES), search: '', dateFrom: '', dateTo: '' });
       undoStackRef.current = []; // Clear undo on project switch
       loadIssues(id);
     },

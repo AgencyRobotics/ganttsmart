@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import type { Task } from '@/types';
+import type { TaskBaseline } from '@/hooks/usePlanningHistory';
 import type { ColumnWidths } from './GanttChart';
 import { Avatar } from '@/utils/avatar';
 import { isSafeUrl } from '@/utils/url';
@@ -27,6 +28,7 @@ interface Props {
   onConnectStart?: (taskId: string, e: React.MouseEvent) => void;
   isConnecting?: boolean;
   depViolation?: string[]; // list of blocker IDs whose schedule is violated
+  baseline?: TaskBaseline;
   isDone?: boolean;
 }
 
@@ -81,6 +83,7 @@ export default function GanttRow({
   onConnectStart,
   isConnecting,
   depViolation,
+  baseline,
   isDone,
 }: Props) {
   const pCls = priorityClass(task.priorityVal);
@@ -362,6 +365,26 @@ export default function GanttRow({
   const progressWidth = task.totalChildren > 0 ? `${task.progress}%` : undefined;
   const statusDotColor = statusDotColors[task.statusType] || '#484f58';
 
+  // Ghost bar for baseline (planned vs actual) — only show when dates have drifted
+  const baselineBar = (() => {
+    if (!baseline || isDone) return null;
+    const baseStart = baseline.planned_start ? new Date(baseline.planned_start + 'T00:00:00') : null;
+    const baseDue = new Date(baseline.planned_due + 'T00:00:00');
+    const actualStart = taskStartDate;
+    const actualDue = dueDate;
+    // Check if dates have changed
+    const startChanged = (baseStart?.getTime() ?? null) !== (actualStart?.getTime() ?? null);
+    const dueChanged = baseDue.getTime() !== actualDue.getTime();
+    if (!startChanged && !dueChanged) return null;
+    // Compute ghost bar position
+    const ghostStartDate = baseStart || chartStart;
+    const ghostLeft = daysBetween(chartStart, ghostStartDate) * dayWidth;
+    const ghostEndDay = daysBetween(chartStart, baseDue);
+    const ghostStartDay = daysBetween(chartStart, ghostStartDate);
+    const ghostWidth = Math.max((ghostEndDay - ghostStartDay + 1) * dayWidth, dayWidth);
+    return { left: ghostLeft, width: ghostWidth };
+  })();
+
   return (
     <tr
       data-task-id={task.id}
@@ -515,12 +538,27 @@ export default function GanttRow({
             ))}
           </div>
 
+          {/* Ghost bar — baseline (original plan) overlay, rendered above main bar */}
+          {baselineBar && (
+            <div
+              className="absolute h-[26px] rounded-md top-[3px] z-[3] border-2 border-dashed border-amber-400/60 pointer-events-none"
+              style={{
+                left: baselineBar.left,
+                width: baselineBar.width,
+                background: 'rgba(251, 191, 36, 0.08)',
+              }}
+              title={`Originally planned: ${baseline?.planned_start || '(no start)'} → ${baseline?.planned_due}`}
+            />
+          )}
+
+          {/* Bar wrapper — groups bar + connector dot for shared hover state */}
+          <div className="group/bar absolute top-0 h-full" style={{ left: displayBarLeft, width: displayBarWidth + 20 }}>
           {/* Main bar */}
           <div
             data-task-bar={task.id}
-            className={`gantt-bar group/bar absolute h-[26px] rounded-md top-[3px] flex items-center ${barIsNarrow ? 'justify-center' : 'justify-end pr-2'} text-[10px] font-semibold text-white/70 z-[2] min-w-[20px] transition-[filter,transform] duration-150 hover:brightness-120 hover:scale-y-110 ${isDone ? 'bar-done' : overdue ? 'bar-overdue animate-pulse-bar' : `bar-${pCls}`} ${isAnyDrag ? '!transition-none !transform-none opacity-80' : ''} ${isConnecting ? 'ring-2 ring-accent/40 ring-offset-1 ring-offset-transparent' : ''} ${onReschedule || onRescheduleStart ? (isMoving ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-pointer'}`}
+            className={`gantt-bar absolute h-[26px] rounded-md top-[3px] flex items-center ${barIsNarrow ? 'justify-center' : 'justify-end pr-2'} text-[10px] font-semibold text-white/70 z-[2] min-w-[20px] transition-[filter,transform] duration-150 hover:brightness-120 hover:scale-y-110 ${isDone ? 'bar-done' : overdue ? 'bar-overdue animate-pulse-bar' : `bar-${pCls}`} ${isAnyDrag ? '!transition-none !transform-none opacity-80' : ''} ${isConnecting ? 'ring-2 ring-accent/40 ring-offset-1 ring-offset-transparent' : ''} ${onReschedule || onRescheduleStart ? (isMoving ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-pointer'}`}
             style={{
-              left: displayBarLeft,
+              left: 0,
               width: displayBarWidth,
               background: isDone
                 ? 'linear-gradient(135deg, #1a7f37, #2ea043)'
@@ -564,19 +602,25 @@ export default function GanttRow({
               />
             )}
 
-            {/* Connection dot — drag from here to another bar to create a "blocks" relation */}
-            {onConnectStart && !isDone && (
-              <div
-                className="absolute -right-[7px] top-1/2 -translate-y-1/2 w-[14px] h-[14px] rounded-full bg-accent border-2 border-bg-card opacity-0 group-hover/bar:opacity-100 cursor-crosshair z-[5] transition-opacity hover:scale-125 hover:opacity-100"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onConnectStart(task.id, e);
-                }}
-                onClick={(e) => e.stopPropagation()}
-                title="Drag to another task to create a dependency"
-              />
-            )}
+          </div>
+
+          {/* Connection dot — outside bar div to avoid overflow:hidden clipping */}
+          {onConnectStart && !isDone && (
+            <div
+              className="absolute w-[12px] h-[12px] rounded-full bg-accent border-2 border-bg-card opacity-0 group-hover/bar:opacity-100 cursor-crosshair z-[5] transition-opacity hover:scale-125"
+              style={{
+                left: displayBarWidth + 4,
+                top: 3 + 13 - 6,
+              }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onConnectStart(task.id, e);
+              }}
+              onClick={(e) => e.stopPropagation()}
+              title="Drag to another task to create a dependency"
+            />
+          )}
           </div>
 
           {/* Floating label for narrow bars — positioned to the right of the bar */}
