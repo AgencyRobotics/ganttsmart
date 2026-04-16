@@ -9,6 +9,8 @@ const Landing = lazy(() => import('@/pages/Landing'));
 const Callback = lazy(() => import('@/pages/Callback'));
 const NotFound = lazy(() => import('@/pages/NotFound'));
 const SharedView = lazy(() => import('@/pages/SharedView'));
+const PrivacyPolicy = lazy(() => import('@/pages/PrivacyPolicy'));
+const TermsOfService = lazy(() => import('@/pages/TermsOfService'));
 
 const Spinner = () => (
   <div className="fixed inset-0 bg-bg-primary flex items-center justify-center">
@@ -26,6 +28,8 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/app" element={<App />} />
           <Route path="/callback" element={<Callback />} />
           <Route path="/share/:shareToken" element={<SharedView />} />
+          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+          <Route path="/terms-of-service" element={<TermsOfService />} />
           <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
