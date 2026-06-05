@@ -1,0 +1,13 @@
+node_modules
+dist
+.git
+.github
+.vite
+.netlify
+.idea
+.claude
+*.log
+*.py
+supabase/.temp
+.env
+.env.*
