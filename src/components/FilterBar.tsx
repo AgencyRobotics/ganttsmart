@@ -1,14 +1,23 @@
 import { useMemo } from 'react';
-import type { Filters, GroupBy, Project } from '@/types';
+import type { Filters, GroupBy, Initiative, Project } from '@/types';
+import type { ColumnKey } from '@/utils/columns';
 import { Avatar } from '@/utils/avatar';
+import ColumnConfigButton from './ColumnConfigButton';
 import CustomDropdown from './CustomDropdown';
 import type { DropdownOption } from './CustomDropdown';
 import DateRangePicker from './DateRangePicker';
+import ScopeSelector from './ScopeSelector';
+import ProjectMultiSelect from './ProjectMultiSelect';
 
 interface Props {
   projects: Project[];
   selectedProjectId: string;
   onSelectProject: (id: string) => void;
+  initiatives?: Initiative[];
+  selectedInitiativeId?: string;
+  onSelectInitiative?: (id: string) => void;
+  selectedProjectIds?: string[];
+  onVisibleProjectIdsChange?: (ids: string[]) => void;
   assignees: string[];
   statuses: string[];
   filters: Filters;
@@ -18,6 +27,12 @@ interface Props {
   groupBy: GroupBy;
   onGroupByChange: (g: GroupBy) => void;
   hideProjectSelector?: boolean;
+  visibleColumns?: ColumnKey[];
+  onVisibleColumnsChange?: (next: ColumnKey[]) => void;
+  driftCount?: number;
+  baselineBusy?: boolean;
+  onAcceptAll?: () => void;
+  onRevertAll?: () => void;
 }
 
 const PRIORITY_CHIPS = [
@@ -87,6 +102,23 @@ function GroupIcon() {
   );
 }
 
+function CheckIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+function UndoIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+      <polyline points="9 14 4 9 9 4" />
+      <path d="M20 20v-7a4 4 0 00-4-4H4" />
+    </svg>
+  );
+}
+
 function XIcon() {
   return (
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
@@ -100,6 +132,11 @@ export default function FilterBar({
   projects,
   selectedProjectId,
   onSelectProject,
+  initiatives,
+  selectedInitiativeId,
+  onSelectInitiative,
+  selectedProjectIds,
+  onVisibleProjectIdsChange,
   assignees,
   statuses,
   filters,
@@ -109,6 +146,12 @@ export default function FilterBar({
   groupBy,
   onGroupByChange,
   hideProjectSelector,
+  visibleColumns,
+  onVisibleColumnsChange,
+  driftCount = 0,
+  baselineBusy,
+  onAcceptAll,
+  onRevertAll,
 }: Props) {
   const togglePriority = (val: number) => {
     const next = new Set(filters.priorities);
@@ -180,17 +223,36 @@ export default function FilterBar({
 
         <div className="w-px h-5 bg-border-primary shrink-0" />
 
-        {/* Project */}
-        {!hideProjectSelector && (
-          <CustomDropdown
-            value={selectedProjectId}
-            options={projectOptions}
-            placeholder="All Projects"
-            placeholderIcon={<FolderIcon />}
-            onChange={(v) => onSelectProject(v)}
-            required
-          />
-        )}
+        {/* Scope: project or initiative */}
+        {!hideProjectSelector &&
+          (onSelectInitiative ? (
+            <>
+              <ScopeSelector
+                projects={projects}
+                initiatives={initiatives || []}
+                selectedProjectId={selectedProjectId}
+                selectedInitiativeId={selectedInitiativeId || ''}
+                onSelectProject={onSelectProject}
+                onSelectInitiative={onSelectInitiative}
+              />
+              {selectedInitiativeId && onVisibleProjectIdsChange && (
+                <ProjectMultiSelect
+                  projects={initiatives?.find((i) => i.id === selectedInitiativeId)?.projects || []}
+                  selectedIds={selectedProjectIds || []}
+                  onChange={onVisibleProjectIdsChange}
+                />
+              )}
+            </>
+          ) : (
+            <CustomDropdown
+              value={selectedProjectId}
+              options={projectOptions}
+              placeholder="All Projects"
+              placeholderIcon={<FolderIcon />}
+              onChange={(v) => onSelectProject(v)}
+              required
+            />
+          ))}
 
         {/* Assignee */}
         <CustomDropdown
@@ -234,14 +296,20 @@ export default function FilterBar({
 
         <div className="w-px h-5 bg-border-primary shrink-0" />
 
-        {/* Group by */}
+        {/* Group by — disabled in initiative mode (grouped by project) */}
         <CustomDropdown
-          value={groupBy === 'none' ? '' : groupBy}
-          options={groupOptions}
+          value={selectedInitiativeId ? 'project' : groupBy === 'none' ? '' : groupBy}
+          options={
+            selectedInitiativeId
+              ? [{ value: 'project', label: 'Grouped by project', icon: <GroupIcon /> }]
+              : groupOptions
+          }
           placeholder="No grouping"
           placeholderIcon={<GroupIcon />}
           onChange={(v) => onGroupByChange((v || 'none') as GroupBy)}
           required
+          disabled={!!selectedInitiativeId}
+          title={selectedInitiativeId ? 'Grouping is set to project in initiative mode' : undefined}
         />
 
         {/* Date range */}
@@ -252,6 +320,42 @@ export default function FilterBar({
         />
 
         <div className="flex-1" />
+
+        {/* Bulk baseline actions — only when something has drifted from its baseline */}
+        {driftCount > 0 && onAcceptAll && onRevertAll && (
+          <>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span
+                className="w-2.5 h-2.5 rounded-sm border-[1.5px] border-dashed border-amber-400/70 shrink-0"
+                title={`${driftCount} task(s) drifted from baseline`}
+              />
+              <button
+                onClick={onAcceptAll}
+                disabled={baselineBusy}
+                className="h-8 px-2.5 inline-flex items-center gap-1.5 rounded-md border text-xs font-medium cursor-pointer transition-colors bg-success/10 border-success/30 text-success hover:bg-success/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Accept current dates as the new baseline for all drifted tasks"
+              >
+                <CheckIcon />
+                {baselineBusy ? 'Working…' : `Accept all (${driftCount})`}
+              </button>
+              <button
+                onClick={onRevertAll}
+                disabled={baselineBusy}
+                className="h-8 px-2.5 inline-flex items-center gap-1.5 rounded-md border text-xs font-medium cursor-pointer transition-colors bg-bg-card border-border-primary text-text-secondary hover:border-border-secondary hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Revert all drifted tasks back to their baseline dates"
+              >
+                <UndoIcon />
+                Revert all
+              </button>
+            </div>
+            <div className="w-px h-5 bg-border-primary shrink-0" />
+          </>
+        )}
+
+        {/* Column configuration */}
+        {visibleColumns && onVisibleColumnsChange && (
+          <ColumnConfigButton visibleColumns={visibleColumns} onChange={onVisibleColumnsChange} />
+        )}
 
         {/* Count pill */}
         <span className="shrink-0 bg-bg-hover text-text-secondary text-[11px] font-medium font-mono tabular-nums px-2.5 h-7 rounded-full flex items-center">

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import AuthPage from '@/components/AuthPage';
 import FilterBar from '@/components/FilterBar';
 import GanttChart from '@/components/GanttChart';
@@ -6,9 +6,17 @@ import Header from '@/components/Header';
 import LinearConnect from '@/components/LinearConnect';
 import Onboarding from '@/components/Onboarding';
 import StatsRow from '@/components/StatsRow';
-import ToastContainer from '@/components/Toast';
-import DetailPanel, { setRemoveRelationHandler, setBaselinesForPanel } from '@/components/DetailPanel';
+import ToastContainer, { toastSuccess } from '@/components/Toast';
+import DetailPanel, {
+  setRemoveRelationHandler,
+  setBaselinesForPanel,
+  setCreateDependentIssueHandler,
+  setPanelEditContext,
+} from '@/components/DetailPanel';
+import type { Task } from '@/types';
+import { isTaskDrifted } from '@/utils/baseline';
 import { useAuth } from '@/hooks/useAuth';
+import { useColumnConfig } from '@/hooks/useColumnConfig';
 import { useLinearData } from '@/hooks/useLinearData';
 import { usePlanningHistory } from '@/hooks/usePlanningHistory';
 import { useTheme } from '@/hooks/useTheme';
@@ -29,7 +37,11 @@ function GanttView({
 
   const {
     projects,
+    initiatives,
     selectedProjectId,
+    selectedInitiativeId,
+    selectedProjectIds,
+    projectMetas,
     projectName,
     tasks,
     doneTasks,
@@ -47,6 +59,8 @@ function GanttView({
     setFilters,
     setGroupBy,
     selectProject,
+    selectInitiative,
+    setVisibleProjectIds,
     refresh,
     zoomIn,
     zoomOut,
@@ -55,24 +69,41 @@ function GanttView({
     cycleStatus,
     createRelation,
     removeRelation,
+    createDependentIssue,
+    editTitle,
+    editPriority,
+    editStatus,
+    editAssignee,
+    editDescription,
+    persistDates,
+    rescheduleWithDependents,
+    clearStartDate,
+    workflowStates,
+    users,
+    teams,
   } = useLinearData(linearToken, onDisconnectLinear);
 
   // Planning history: track baselines and log changes
-  const { baselines, syncBaselines, logChange, logStatusTransition } = usePlanningHistory(selectedProjectId);
+  const { baselines, syncBaselines, updateBaseline, logChange, logStatusTransition } =
+    usePlanningHistory(selectedProjectId);
+
+  // Per-user visible-column configuration
+  const { visibleColumns, setVisibleColumns } = useColumnConfig();
 
   // Sync baselines whenever tasks load
   useEffect(() => {
     if (tasks.length > 0) syncBaselines(tasks);
   }, [tasks, syncBaselines]);
 
-  // Wrap reschedule to log due date changes
+  // Wrap reschedule to log due date changes. Uses the dependency-aware variant so that
+  // dragging an issue's end past a dependent's start slides the dependents along too.
   const rescheduleWithHistory = useCallback(
     async (taskUuid: string, newDueDate: string) => {
       const task = tasks.find((t) => t.uuid === taskUuid);
       if (task) logChange(task.id, 'due_date', task.due, newDueDate);
-      return reschedule(taskUuid, newDueDate);
+      return rescheduleWithDependents(taskUuid, newDueDate);
     },
-    [reschedule, tasks, logChange],
+    [rescheduleWithDependents, tasks, logChange],
   );
 
   // Wrap rescheduleStart to log start date changes
@@ -95,11 +126,116 @@ function GanttView({
     [cycleStatus, tasks, logStatusTransition],
   );
 
+  // Accept the current (auto-scheduled) dates: persist them to Linear and make them the new baseline.
+  const acceptBaseline = useCallback(
+    async (task: Task) => {
+      await persistDates(task.uuid, task.startDate, task.due);
+      await updateBaseline(task.id, task.startDate, task.due);
+    },
+    [persistDates, updateBaseline],
+  );
+
+  // Revert: restore the issue's dates to its recorded baseline.
+  const revertBaseline = useCallback(
+    async (task: Task) => {
+      const bl = baselines.get(task.id);
+      if (!bl) return;
+      if (task.due !== bl.planned_due) await reschedule(task.uuid, bl.planned_due);
+      if (bl.planned_start) {
+        if (task.startDate !== bl.planned_start) await rescheduleStart(task.uuid, bl.planned_start);
+      } else if (task.startDate) {
+        await clearStartDate(task.uuid);
+      }
+    },
+    [baselines, reschedule, rescheduleStart, clearStartDate],
+  );
+
+  // Tasks whose dates have drifted from their baseline (the ones showing an amber ghost bar)
+  const driftedTasks = useMemo(
+    () => filteredTasks.filter((t) => isTaskDrifted(t, baselines.get(t.id))),
+    [filteredTasks, baselines],
+  );
+
+  const [baselineBulkBusy, setBaselineBulkBusy] = useState(false);
+
+  const acceptAllBaselines = useCallback(async () => {
+    if (baselineBulkBusy || driftedTasks.length === 0) return;
+    if (
+      !window.confirm(
+        `Accept the current dates for ${driftedTasks.length} task(s)? This writes the dates to Linear and makes them the new baseline.`,
+      )
+    )
+      return;
+    setBaselineBulkBusy(true);
+    try {
+      for (const t of driftedTasks) {
+        await acceptBaseline(t);
+      }
+      toastSuccess(`Accepted ${driftedTasks.length} baseline update(s)`);
+      refresh();
+    } finally {
+      setBaselineBulkBusy(false);
+    }
+  }, [baselineBulkBusy, driftedTasks, acceptBaseline, refresh]);
+
+  const revertAllBaselines = useCallback(async () => {
+    if (baselineBulkBusy || driftedTasks.length === 0) return;
+    if (!window.confirm(`Revert ${driftedTasks.length} task(s) back to their baseline dates?`)) return;
+    setBaselineBulkBusy(true);
+    try {
+      for (const t of driftedTasks) {
+        await revertBaseline(t);
+      }
+      toastSuccess(`Reverted ${driftedTasks.length} task(s)`);
+      refresh();
+    } finally {
+      setBaselineBulkBusy(false);
+    }
+  }, [baselineBulkBusy, driftedTasks, revertBaseline, refresh]);
+
   // Register the remove handler for DetailPanel's × buttons
   useEffect(() => {
     setRemoveRelationHandler(removeRelation);
     return () => setRemoveRelationHandler(null);
   }, [removeRelation]);
+
+  // Register the create-dependent-issue handler for DetailPanel's buttons
+  useEffect(() => {
+    setCreateDependentIssueHandler(createDependentIssue);
+    return () => setCreateDependentIssueHandler(null);
+  }, [createDependentIssue]);
+
+  // Register the field-edit context for the DetailPanel (uses history-wrapped date handlers)
+  useEffect(() => {
+    setPanelEditContext({
+      editTitle,
+      editPriority,
+      editStatus,
+      editAssignee,
+      editDescription,
+      reschedule: rescheduleWithHistory,
+      rescheduleStart: rescheduleStartWithHistory,
+      acceptBaseline,
+      revertBaseline,
+      workflowStates,
+      users,
+      teams,
+    });
+    return () => setPanelEditContext(null);
+  }, [
+    editTitle,
+    editPriority,
+    editStatus,
+    editAssignee,
+    editDescription,
+    rescheduleWithHistory,
+    rescheduleStartWithHistory,
+    acceptBaseline,
+    revertBaseline,
+    workflowStates,
+    users,
+    teams,
+  ]);
 
   // Keep DetailPanel's baselines in sync
   useEffect(() => {
@@ -154,6 +290,11 @@ function GanttView({
         projects={projects}
         selectedProjectId={selectedProjectId}
         onSelectProject={selectProject}
+        initiatives={initiatives}
+        selectedInitiativeId={selectedInitiativeId}
+        onSelectInitiative={selectInitiative}
+        selectedProjectIds={selectedProjectIds}
+        onVisibleProjectIdsChange={setVisibleProjectIds}
         assignees={assignees}
         statuses={statuses}
         filters={filters}
@@ -162,6 +303,12 @@ function GanttView({
         filteredCount={filteredTasks.length}
         groupBy={groupBy}
         onGroupByChange={setGroupBy}
+        visibleColumns={visibleColumns}
+        onVisibleColumnsChange={setVisibleColumns}
+        driftCount={driftedTasks.length}
+        baselineBusy={baselineBulkBusy}
+        onAcceptAll={acceptAllBaselines}
+        onRevertAll={revertAllBaselines}
       />
 
       <StatsRow tasks={filteredTasks} />
@@ -176,6 +323,9 @@ function GanttView({
           error={error}
           dayWidth={dayWidth}
           groupBy={groupBy}
+          visibleColumns={visibleColumns}
+          groupByProject={!!selectedInitiativeId}
+          projectMetas={projectMetas}
           onReschedule={rescheduleWithHistory}
           onRescheduleStart={rescheduleStartWithHistory}
           onCycleStatus={cycleStatusWithHistory}

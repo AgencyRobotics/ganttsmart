@@ -116,18 +116,34 @@ async function recordFailedAttempt(supabase: ReturnType<typeof createClient>, sh
 
 // --- GraphQL with variables (INJ-VULN-01 fix) ---
 
-// Match the main app's start-date convention: `start: DD-MM-YY` written into issue descriptions
-// by updateIssueStartDate (src/api/linear.ts). Returns YYYY-MM-DD or null.
+// Match the main app's start-date convention written into issue descriptions by
+// updateIssueStartDate (src/api/linear.ts). Current format: "Start Date: YYYY-MM-DD";
+// legacy "start: DD-MM-YY" is still read. Returns YYYY-MM-DD or null.
 function parseStartDate(description: string | null | undefined): string | null {
   if (!description) return null;
-  const match = description.match(/start:\s*(\d{2})-(\d{2})-(\d{2})/i);
-  if (!match) return null;
-  const [, dd, mm, yy] = match;
-  const year = 2000 + parseInt(yy);
-  const month = parseInt(mm);
-  const day = parseInt(dd);
-  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+  // Current format: "Start Date: YYYY-MM-DD"
+  const iso = description.match(/start date:\s*(\d{4})-(\d{2})-(\d{2})/i);
+  if (iso) {
+    const [, yyyy, mm, dd] = iso;
+    const month = parseInt(mm);
+    const day = parseInt(dd);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  // Legacy format: "start: DD-MM-YY"
+  const legacy = description.match(/start:\s*(\d{2})-(\d{2})-(\d{2})/i);
+  if (legacy) {
+    const [, dd, mm, yy] = legacy;
+    const year = 2000 + parseInt(yy);
+    const month = parseInt(mm);
+    const day = parseInt(dd);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+
+  return null;
 }
 
 async function fetchLinearData(apiKey: string, projectId: string) {
