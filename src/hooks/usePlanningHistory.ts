@@ -119,6 +119,43 @@ export function usePlanningHistory(projectId: string) {
     [projectId, baselines, loadBaselines],
   );
 
+  // Update (or create) a task's baseline to specific planned dates — used by "Accept changes".
+  const updateBaseline = useCallback(
+    async (issueId: string, plannedStart: string | null, plannedDue: string) => {
+      if (!projectId) return;
+      const userId = await getUserId();
+      if (!userId) return;
+
+      const { error } = await supabase.from('task_baselines').upsert(
+        {
+          user_id: userId,
+          issue_id: issueId,
+          project_id: projectId,
+          planned_start: plannedStart,
+          planned_due: plannedDue,
+        },
+        { onConflict: 'user_id,issue_id' },
+      );
+
+      if (error) {
+        console.warn('Failed to update baseline:', error.message);
+        throw new Error(error.message);
+      }
+
+      setBaselines((prev) => {
+        const next = new Map(prev);
+        next.set(issueId, {
+          issue_id: issueId,
+          planned_start: plannedStart,
+          planned_due: plannedDue,
+          first_seen_at: prev.get(issueId)?.first_seen_at || new Date().toISOString(),
+        });
+        return next;
+      });
+    },
+    [projectId],
+  );
+
   // Log a field change to issue_change_history
   const logChange = useCallback(
     async (issueId: string, field: string, oldValue: string | null, newValue: string | null) => {
@@ -191,6 +228,7 @@ export function usePlanningHistory(projectId: string) {
   return {
     baselines,
     syncBaselines,
+    updateBaseline,
     logChange,
     logStatusTransition,
     getTaskHistory,

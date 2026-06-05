@@ -1,9 +1,17 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import type {GroupBy, Milestone, Task} from '@/types';
+import type {GroupBy, Milestone, ProjectMeta, Task} from '@/types';
 import type {TaskBaseline} from '@/hooks/usePlanningHistory';
 import {Avatar} from '@/utils/avatar';
 import {daysBetween, isWeekend} from '@/utils/date';
+import {
+  COLUMN_DEFS,
+  DEFAULT_COLUMN_WIDTHS,
+  MIN_COLUMN_WIDTHS,
+  type ColumnKey,
+  type ColumnWidths,
+} from '@/utils/columns';
 import DependencyArrows from './DependencyArrows';
+import ProjectArrows from './ProjectArrows';
 import GanttRow from './GanttRow';
 
 interface Props {
@@ -15,6 +23,10 @@ interface Props {
   error: string;
   dayWidth: number;
   groupBy: GroupBy;
+  visibleColumns: ColumnKey[];
+  /** When true (initiative mode), tasks are grouped by project with a summary bar each. */
+  groupByProject?: boolean;
+  projectMetas?: ProjectMeta[];
   onReschedule?: (taskUuid: string, newDueDate: string) => Promise<void>;
   onRescheduleStart?: (taskUuid: string, newStartDate: string) => Promise<void>;
   onCycleStatus?: (taskUuid: string) => Promise<void>;
@@ -24,14 +36,44 @@ interface Props {
   dateTo?: string;
 }
 
-export interface ColumnWidths {
-  task: number;
-  priority: number;
-  due: number;
+interface ProjectGroup {
+  key: string;
+  label: string;
+  tasks: Task[];
+  meta: ProjectMeta;
 }
 
-const DEFAULT_WIDTHS: ColumnWidths = {task: 300, priority: 90, due: 78};
-const MIN_WIDTHS: ColumnWidths = {task: 220, priority: 80, due: 70};
+/** Bar geometry (left/width in px) for a project summary bar, given the chart origin. */
+function projectBarGeom(
+  meta: ProjectMeta,
+  groupTasks: Task[],
+  chartStart: Date,
+  dayWidth: number,
+): { left: number; width: number } | null {
+  let startStr = meta.startDate;
+  let endStr = meta.targetDate;
+
+  // Fall back to the issue date range only when Linear has no project dates set.
+  if (!startStr || !endStr) {
+    const starts = groupTasks.map((t) => t.startDate || t.due).filter(Boolean) as string[];
+    const dues = groupTasks.map((t) => t.due).filter(Boolean);
+    if (!startStr && starts.length) startStr = starts.reduce((a, b) => (a < b ? a : b));
+    if (!endStr && dues.length) endStr = dues.reduce((a, b) => (a > b ? a : b));
+  }
+  if (!startStr || !endStr) return null;
+
+  const startDay = daysBetween(chartStart, new Date(startStr + 'T00:00:00'));
+  const endDay = daysBetween(chartStart, new Date(endStr + 'T00:00:00'));
+  let left = startDay * dayWidth;
+  let width = Math.max((endDay - startDay + 1) * dayWidth, dayWidth);
+  if (left < 0) {
+    width = Math.max(width + left, dayWidth);
+    left = 0;
+  }
+  return { left, width };
+}
+
+export type { ColumnWidths } from '@/utils/columns';
 
 function groupTasks(tasks: Task[], groupBy: GroupBy): { key: string; label: string; tasks: Task[] }[] {
   if (groupBy === 'none') return [{key: '__all', label: '', tasks}];
@@ -93,6 +135,9 @@ export default function GanttChart({
                                      error,
                                      dayWidth,
                                      groupBy,
+                                     visibleColumns,
+                                     groupByProject = false,
+                                     projectMetas = [],
                                      onReschedule,
                                      onRescheduleStart,
                                      onCycleStatus,
@@ -104,9 +149,15 @@ export default function GanttChart({
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [doneVisible, setDoneVisible] = useState(false);
   const [unscheduledVisible, setUnscheduledVisible] = useState(true);
-  const [colWidths, setColWidths] = useState<ColumnWidths>(DEFAULT_WIDTHS);
+  const [colWidths, setColWidths] = useState<ColumnWidths>(DEFAULT_COLUMN_WIDTHS);
   const ganttRef = useRef<HTMLDivElement>(null);
-  const baseWidthsRef = useRef<ColumnWidths>(DEFAULT_WIDTHS);
+  const baseWidthsRef = useRef<ColumnWidths>(DEFAULT_COLUMN_WIDTHS);
+
+  // Optional columns to render (canonical order), driven by the user's saved config.
+  const visibleColDefs = useMemo(
+    () => COLUMN_DEFS.filter((c) => visibleColumns.includes(c.key)),
+    [visibleColumns],
+  );
 
   // Connection drag state (imperative for performance — no re-renders during mousemove)
   const innerRef = useRef<HTMLDivElement>(null);
@@ -236,7 +287,7 @@ export default function GanttChart({
         }
         setColWidths((prev) => ({
           ...prev,
-          [col]: Math.max(baseWidthsRef.current[col] + delta, MIN_WIDTHS[col]),
+          [col]: Math.max(baseWidthsRef.current[col] + delta, MIN_COLUMN_WIDTHS[col]),
         }));
       };
     },
@@ -268,7 +319,8 @@ export default function GanttChart({
         if (!blocker) continue;
         const taskStart = task.startDate ? new Date(task.startDate + 'T00:00:00') : today;
         const blockerDue = new Date(blocker.due + 'T00:00:00');
-        if (taskStart <= blockerDue) addViolation(task.id, blockerId);
+        // Starting exactly when the blocker is due is the intended default, not a violation.
+        if (taskStart < blockerDue) addViolation(task.id, blockerId);
       }
 
       // Check via blocks: do the tasks this one blocks start before this one is due?
@@ -277,7 +329,8 @@ export default function GanttChart({
         if (!blocked) continue;
         const blockedStart = blocked.startDate ? new Date(blocked.startDate + 'T00:00:00') : today;
         const blockerDue = new Date(task.due + 'T00:00:00');
-        if (blockedStart <= blockerDue) addViolation(blockedId, task.id);
+        // Starting exactly when the blocker is due is the intended default, not a violation.
+        if (blockedStart < blockerDue) addViolation(blockedId, task.id);
       }
     }
     return violations;
@@ -304,6 +357,13 @@ export default function GanttChart({
       milestones.forEach((m) => {
         if (m.targetDate) allDates.push(new Date(m.targetDate + 'T00:00:00').getTime());
       });
+      // Include project summary bar dates so they're never clipped in initiative mode.
+      if (groupByProject) {
+        projectMetas.forEach((p) => {
+          if (p.startDate) allDates.push(new Date(p.startDate + 'T00:00:00').getTime());
+          if (p.targetDate) allDates.push(new Date(p.targetDate + 'T00:00:00').getTime());
+        });
+      }
 
       const minDate = new Date(Math.min(...allDates));
       const maxDate = new Date(Math.max(...allDates));
@@ -315,13 +375,13 @@ export default function GanttChart({
 
     const dataDays = daysBetween(chartStart, chartEnd);
 
-    const fixedCols = colWidths.task + colWidths.priority + colWidths.due;
+    const fixedCols = colWidths.task + visibleColDefs.reduce((sum, c) => sum + colWidths[c.key], 0);
     const viewportWidth = typeof window !== 'undefined' ? window.innerWidth - 80 : 1200;
     const minDaysToFill = Math.ceil(Math.max(viewportWidth - fixedCols, 0) / dayWidth);
     const totalDays = Math.max(dataDays, minDaysToFill);
 
     return {chartStart, totalDays};
-  }, [tasks, milestones, today, colWidths, dayWidth, dateFrom, dateTo]);
+  }, [tasks, milestones, today, colWidths, visibleColDefs, dayWidth, dateFrom, dateTo, groupByProject, projectMetas]);
 
   // Calendar header (memoized)
   const {months, daysCells} = useMemo(() => {
@@ -368,8 +428,28 @@ export default function GanttChart({
     [milestones, chartStart, totalDays],
   );
 
-  const fixedColsWidth = colWidths.task + colWidths.priority + colWidths.due;
+  const fixedColsWidth = colWidths.task + visibleColDefs.reduce((sum, c) => sum + colWidths[c.key], 0);
   const groups = useMemo(() => groupTasks(tasks, groupBy), [tasks, groupBy]);
+
+  // Initiative mode: one group per project (ordered by projectMetas), each with a summary bar.
+  const projectGroups = useMemo<ProjectGroup[]>(() => {
+    if (!groupByProject) return [];
+    const byProject = new Map<string, Task[]>();
+    for (const t of tasks) {
+      const pid = t.projectId || '';
+      if (!byProject.has(pid)) byProject.set(pid, []);
+      byProject.get(pid)!.push(t);
+    }
+    return projectMetas.map((meta) => ({
+      key: meta.id,
+      label: meta.name,
+      tasks: byProject.get(meta.id) || [],
+      meta,
+    }));
+  }, [groupByProject, tasks, projectMetas]);
+
+  // total table columns = Task + visible optional columns + the chart column
+  const totalColSpan = visibleColDefs.length + 2;
 
   // Early returns — after all hooks
   if (loading) {
@@ -490,18 +570,20 @@ export default function GanttChart({
         <table className="border-collapse" style={{width: fixedColsWidth + totalDays * dayWidth}}>
           <thead>
           <tr>
-            <th className={`${thBase} px-[18px]`} style={{width: colWidths.task, minWidth: MIN_WIDTHS.task}}>
+            <th className={`${thBase} px-[18px]`} style={{width: colWidths.task, minWidth: MIN_COLUMN_WIDTHS.task}}>
               Task
               <ResizeHandle onResize={makeResizeHandler('task')}/>
             </th>
-            <th className={`${thBase} px-3`} style={{width: colWidths.priority, minWidth: MIN_WIDTHS.priority}}>
-              Priority
-              <ResizeHandle onResize={makeResizeHandler('priority')}/>
-            </th>
-            <th className={`${thBase} px-3`} style={{width: colWidths.due, minWidth: MIN_WIDTHS.due}}>
-              Due
-              <ResizeHandle onResize={makeResizeHandler('due')}/>
-            </th>
+            {visibleColDefs.map((col) => (
+              <th
+                key={col.key}
+                className={`${thBase} px-3`}
+                style={{width: colWidths[col.key], minWidth: MIN_COLUMN_WIDTHS[col.key]}}
+              >
+                {col.label}
+                <ResizeHandle onResize={makeResizeHandler(col.key)}/>
+              </th>
+            ))}
             <th className="p-0 border-b-2 border-border-primary bg-bg-header sticky top-0 z-5">
               <div className="flex border-b border-border-primary">
                 {months.map((m, i) => (
@@ -558,34 +640,63 @@ export default function GanttChart({
           </tr>
           </thead>
           <tbody>
-          {groups.map((group) => (
-            <GroupRows
-              key={group.key}
-              group={group}
-              groupBy={groupBy}
-              showHeader={groupBy !== 'none'}
-              isCollapsed={collapsed.has(group.key)}
-              onToggle={() => toggleCollapse(group.key)}
-              chartStart={chartStart}
-              totalDays={totalDays}
-              today={today}
-              dayWidth={dayWidth}
-              colWidths={colWidths}
-              onReschedule={onReschedule}
-              onRescheduleStart={onRescheduleStart}
-              onCycleStatus={onCycleStatus}
-              onConnectStart={onCreateRelation ? handleConnectStart : undefined}
-              isConnecting={isConnecting}
-              depViolations={depViolations}
-              baselines={baselines}
-            />
-          ))}
+          {groupByProject
+            ? projectGroups.map((group) => (
+                <GroupRows
+                  key={group.key}
+                  group={group}
+                  groupBy={groupBy}
+                  showHeader
+                  projectMeta={group.meta}
+                  isCollapsed={collapsed.has(group.key)}
+                  onToggle={() => toggleCollapse(group.key)}
+                  chartStart={chartStart}
+                  totalDays={totalDays}
+                  today={today}
+                  dayWidth={dayWidth}
+                  colWidths={colWidths}
+                  visibleColumns={visibleColumns}
+                  totalColSpan={totalColSpan}
+                  onReschedule={onReschedule}
+                  onRescheduleStart={onRescheduleStart}
+                  onCycleStatus={onCycleStatus}
+                  onConnectStart={onCreateRelation ? handleConnectStart : undefined}
+                  isConnecting={isConnecting}
+                  depViolations={depViolations}
+                  baselines={baselines}
+                />
+              ))
+            : groups.map((group) => (
+                <GroupRows
+                  key={group.key}
+                  group={group}
+                  groupBy={groupBy}
+                  showHeader={groupBy !== 'none'}
+                  isCollapsed={collapsed.has(group.key)}
+                  onToggle={() => toggleCollapse(group.key)}
+                  chartStart={chartStart}
+                  totalDays={totalDays}
+                  today={today}
+                  dayWidth={dayWidth}
+                  colWidths={colWidths}
+                  visibleColumns={visibleColumns}
+                  totalColSpan={totalColSpan}
+                  onReschedule={onReschedule}
+                  onRescheduleStart={onRescheduleStart}
+                  onCycleStatus={onCycleStatus}
+                  onConnectStart={onCreateRelation ? handleConnectStart : undefined}
+                  isConnecting={isConnecting}
+                  depViolations={depViolations}
+                  baselines={baselines}
+                />
+              ))}
           </tbody>
         </table>
 
-        {groupBy === 'none' && (
+        {(groupBy === 'none' || groupByProject) && (
           <DependencyArrows tasks={tasks} containerRef={innerRef} depViolations={depViolations}/>
         )}
+        {groupByProject && <ProjectArrows projectMetas={projectMetas} containerRef={innerRef} />}
 
         {/* Connection line overlay — updated imperatively during drag for performance */}
         <svg
@@ -653,6 +764,7 @@ export default function GanttChart({
                   today={today}
                   dayWidth={dayWidth}
                   colWidths={colWidths}
+                  visibleColumns={visibleColumns}
                   isDone
                 />
               ))}
@@ -806,6 +918,7 @@ function GroupRows({
                      group,
                      groupBy,
                      showHeader,
+                     projectMeta,
                      isCollapsed,
                      onToggle,
                      chartStart,
@@ -813,6 +926,8 @@ function GroupRows({
                      today,
                      dayWidth,
                      colWidths,
+                     visibleColumns,
+                     totalColSpan,
                      onReschedule,
                      onRescheduleStart,
                      onCycleStatus,
@@ -824,6 +939,7 @@ function GroupRows({
   group: { key: string; label: string; tasks: Task[] };
   groupBy: GroupBy;
   showHeader: boolean;
+  projectMeta?: ProjectMeta;
   isCollapsed: boolean;
   onToggle: () => void;
   chartStart: Date;
@@ -831,6 +947,8 @@ function GroupRows({
   today: Date;
   dayWidth: number;
   colWidths: ColumnWidths;
+  visibleColumns: ColumnKey[];
+  totalColSpan: number;
   onReschedule?: (taskUuid: string, newDueDate: string) => Promise<void>;
   onRescheduleStart?: (taskUuid: string, newStartDate: string) => Promise<void>;
   onCycleStatus?: (taskUuid: string) => Promise<void>;
@@ -839,29 +957,71 @@ function GroupRows({
   depViolations?: Map<string, string[]>;
   baselines?: Map<string, TaskBaseline>;
 }) {
+  const chevron = (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="text-text-muted shrink-0 transition-transform duration-200"
+      style={{ transform: isCollapsed ? 'rotate(0deg)' : 'rotate(90deg)' }}
+    >
+      <polyline points="9 18 15 12 9 6" />
+    </svg>
+  );
+
+  // Project summary header (initiative mode): label cell + a summary bar in the chart cell.
+  if (projectMeta) {
+    const geom = projectBarGeom(projectMeta, group.tasks, chartStart, dayWidth);
+    return (
+      <>
+        <tr className="cursor-pointer hover:bg-accent/[0.04] transition-colors" onClick={onToggle}>
+          <td
+            colSpan={totalColSpan - 1}
+            className="py-2.5 px-4 border-b border-r border-border-primary bg-bg-header/60 text-xs font-semibold text-text-primary"
+          >
+            <div className="flex items-center gap-2">
+              {chevron}
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-accent shrink-0">
+                <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                <polyline points="2 17 12 22 22 17" />
+                <polyline points="2 12 12 17 22 12" />
+              </svg>
+              <span className="truncate">{group.label}</span>
+              <span className="text-text-muted font-normal">({group.tasks.length})</span>
+            </div>
+          </td>
+          <td className="p-0 relative border-b border-border-primary bg-bg-header/30 align-middle">
+            <div className="relative h-9 flex items-center" style={{ width: totalDays * dayWidth }}>
+              {geom && (
+                <div
+                  data-project-bar={projectMeta.id}
+                  className="absolute h-[16px] rounded top-1/2 -translate-y-1/2 bg-accent/70 border border-accent/80 shadow-sm"
+                  style={{ left: geom.left, width: geom.width }}
+                  title={`${projectMeta.name}${projectMeta.startDate ? ` · ${projectMeta.startDate}` : ''}${projectMeta.targetDate ? ` → ${projectMeta.targetDate}` : ''}`}
+                />
+              )}
+            </div>
+          </td>
+        </tr>
+      </>
+    );
+  }
+
   return (
     <>
       {showHeader && (
         <tr className="cursor-pointer hover:bg-accent/[0.04] transition-colors" onClick={onToggle}>
           <td
-            colSpan={4}
+            colSpan={totalColSpan}
             className="py-2.5 px-4 border-b border-border-primary bg-bg-header/50 text-xs font-semibold text-text-secondary"
           >
             <div className="flex items-center gap-2">
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="text-text-muted shrink-0 transition-transform duration-200"
-                style={{transform: isCollapsed ? 'rotate(0deg)' : 'rotate(90deg)'}}
-              >
-                <polyline points="9 18 15 12 9 6"/>
-              </svg>
+              {chevron}
               {groupBy === 'assignee' && <Avatar name={group.label} size="sm"/>}
               {group.label}
               <span className="text-text-muted font-normal">({group.tasks.length})</span>
@@ -879,6 +1039,7 @@ function GroupRows({
             today={today}
             dayWidth={dayWidth}
             colWidths={colWidths}
+            visibleColumns={visibleColumns}
             onReschedule={onReschedule}
             onRescheduleStart={onRescheduleStart}
             onCycleStatus={onCycleStatus}

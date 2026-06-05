@@ -15,6 +15,10 @@ interface Props {
   className?: string;
   /** When true, hides the "All" clear option — the dropdown always requires a selection */
   required?: boolean;
+  /** When true, the control is greyed out and cannot be opened */
+  disabled?: boolean;
+  /** Optional tooltip shown on hover (useful to explain a disabled state) */
+  title?: string;
 }
 
 const selectBgImage = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%238b949e' d='M1 1l4 4 4-4'/%3E%3C/svg%3E")`;
@@ -27,9 +31,15 @@ export default function CustomDropdown({
   onChange,
   className = '',
   required = false,
+  disabled = false,
+  title,
 }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (disabled && open) setOpen(false);
+  }, [disabled, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -47,8 +57,14 @@ export default function CustomDropdown({
   return (
     <div className={`relative ${className}`} ref={ref}>
       <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 py-[7px] pl-2.5 pr-7 bg-bg-card border border-border-secondary rounded-md text-text-primary text-xs font-medium cursor-pointer outline-none transition-colors hover:border-text-muted focus:border-accent max-w-[200px] bg-no-repeat bg-[right_10px_center] bg-[length:10px_6px] w-full"
+        onClick={() => !disabled && setOpen(!open)}
+        disabled={disabled}
+        title={title}
+        className={`flex items-center gap-2 py-[7px] pl-2.5 pr-7 bg-bg-card border border-border-secondary rounded-md text-text-primary text-xs font-medium outline-none transition-colors max-w-[200px] bg-no-repeat bg-[right_10px_center] bg-[length:10px_6px] w-full ${
+          disabled
+            ? 'opacity-50 cursor-not-allowed'
+            : 'cursor-pointer hover:border-text-muted focus:border-accent'
+        }`}
         style={{ backgroundImage: selectBgImage }}
       >
         {selected ? (

@@ -53,16 +53,35 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Validate redirect_uri against allowed origins to prevent open redirect
+    if (!redirect_uri || typeof redirect_uri !== "string") {
+      return new Response(JSON.stringify({ error: "Missing redirect_uri" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Must match the URI used in the authorize step. LINEAR_REDIRECT_URI secret must
+    // equal the production callback URL (same as VITE_LINEAR_REDIRECT_URI in the app).
     const ALLOWED_REDIRECT_URIS = [
       LINEAR_REDIRECT_URI,
       "http://localhost:5173/callback",
       "http://localhost:3000/callback",
     ].filter(Boolean);
 
-    const effectiveRedirectUri = redirect_uri && ALLOWED_REDIRECT_URIS.includes(redirect_uri)
-      ? redirect_uri
-      : LINEAR_REDIRECT_URI;
+    if (!ALLOWED_REDIRECT_URIS.includes(redirect_uri)) {
+      return new Response(
+        JSON.stringify({
+          error:
+            `redirect_uri not allowed: ${redirect_uri}. ` +
+            `Set Supabase secret LINEAR_REDIRECT_URI to this exact value ` +
+            `(currently configured: ${LINEAR_REDIRECT_URI || "(not set)"}).`,
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
 
     const tokenRes = await fetch("https://api.linear.app/oauth/token", {
       method: "POST",
@@ -72,7 +91,7 @@ Deno.serve(async (req: Request) => {
         code,
         client_id: LINEAR_CLIENT_ID,
         client_secret: LINEAR_CLIENT_SECRET,
-        redirect_uri: effectiveRedirectUri,
+        redirect_uri,
       }),
     });
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import FilterBar from '@/components/FilterBar';
 import GanttChart from '@/components/GanttChart';
+import { DEFAULT_VISIBLE_COLUMNS } from '@/utils/columns';
 import Legend from '@/components/Legend';
 import StatsRow from '@/components/StatsRow';
 import Tooltip from '@/components/Tooltip';
@@ -244,6 +245,7 @@ export default function SharedView() {
           error=""
           dayWidth={dayWidth}
           groupBy={groupBy}
+          visibleColumns={DEFAULT_VISIBLE_COLUMNS}
         />
         <Tooltip />
       </div>

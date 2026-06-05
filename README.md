@@ -124,6 +124,11 @@ ganttsmart/
 4. Register a [Linear OAuth app](https://linear.app/settings/api/applications) with your redirect URI
 5. (Optional) Configure Google OAuth in Supabase dashboard
 
+### Deploying to production (Lightsail)
+
+- Copy `.env.deploy.example` to `.env.deploy`, fill in values, run `./deploy.sh`
+- **Redirect / OAuth URL checklist:** see [docs/DEPLOYMENT-URLS.md](docs/DEPLOYMENT-URLS.md) for every place to update Supabase, Google, Linear, and build-time env when the domain changes
+
 ---
 
 ## Keyboard Shortcuts

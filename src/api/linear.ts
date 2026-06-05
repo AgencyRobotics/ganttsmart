@@ -1,4 +1,5 @@
-import { PRIORITY_MAP, type Milestone, type Project, type Task, type WorkflowState } from '@/types';
+import { PRIORITY_MAP, type Initiative, type Milestone, type Project, type Task, type Team, type User, type WorkflowState } from '@/types';
+import { extractStartTag, combineDescription } from '@/utils/description';
 
 const LINEAR_API = 'https://api.linear.app/graphql';
 
@@ -143,23 +144,130 @@ export async function fetchProjects(apiKey: string): Promise<Project[]> {
   return projects.nodes.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Parse `start: DD-MM-YY` from issue description */
+/** Fetch all initiatives in the workspace, each with the projects it contains. */
+export async function fetchInitiatives(apiKey: string): Promise<Initiative[]> {
+  // Keep this light: Linear caps query complexity (~10k), and nesting many projects
+  // under many initiatives blows past it. Project dates come from fetchIssues instead.
+  const data = await gql(
+    apiKey,
+    `query {
+      initiatives(first: 50) {
+        nodes {
+          id
+          name
+          projects(first: 50) {
+            nodes { id name }
+          }
+        }
+      }
+    }`,
+  );
+  const initiatives = data.initiatives as {
+    nodes: Array<{ id: string; name: string; projects: { nodes: Project[] } }>;
+  };
+  return initiatives.nodes
+    .map((i) => ({
+      id: i.id,
+      name: i.name,
+      projects: (i.projects?.nodes || []).slice().sort((a, b) => a.name.localeCompare(b.name)),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Fetch project-to-project "blocks" relations for the given projects, returning a map
+ * keyed by project id. Mirrors the issue-relation convention: `blocks` are the projects
+ * this one blocks; `blockedBy` are the projects that block it. Reads both `relations`
+ * (this project is the source) and `inverseRelations` (this project is the target).
+ */
+export async function fetchProjectRelations(
+  apiKey: string,
+  projectIds: string[],
+): Promise<Record<string, { blocks: string[]; blockedBy: string[] }>> {
+  const result: Record<string, { blocks: string[]; blockedBy: string[] }> = {};
+  for (const id of projectIds) result[id] = { blocks: [], blockedBy: [] };
+  if (projectIds.length === 0) return result;
+
+  const data = await gql(
+    apiKey,
+    `query($ids: [ID!]!) {
+      projects(filter: { id: { in: $ids } }) {
+        nodes {
+          id
+          relations { nodes { type relatedProject { id } } }
+          inverseRelations { nodes { type project { id } } }
+        }
+      }
+    }`,
+    { ids: projectIds },
+  );
+
+  const projects = data.projects as {
+    nodes: Array<{
+      id: string;
+      relations?: { nodes: Array<{ type: string; relatedProject: { id: string } }> };
+      inverseRelations?: { nodes: Array<{ type: string; project: { id: string } }> };
+    }>;
+  };
+
+  // Linear models project dependencies with a single directional type, "dependency":
+  // `project --dependency--> relatedProject` means `project` blocks `relatedProject`
+  // (the related one comes later). Treat legacy "blocks"/"blocked_by" the same way.
+  const isBlocks = (t: string) => t === 'dependency' || t === 'blocks';
+  const inScope = new Set(projectIds);
+  for (const p of projects.nodes) {
+    if (!result[p.id]) result[p.id] = { blocks: [], blockedBy: [] };
+    for (const rel of p.relations?.nodes || []) {
+      const other = rel.relatedProject?.id;
+      if (!other || !inScope.has(other)) continue;
+      if (isBlocks(rel.type)) result[p.id].blocks.push(other);
+      else if (rel.type === 'blocked_by') result[p.id].blockedBy.push(other);
+    }
+    for (const inv of p.inverseRelations?.nodes || []) {
+      const other = inv.project?.id;
+      if (!other || !inScope.has(other)) continue;
+      if (isBlocks(inv.type)) result[p.id].blockedBy.push(other);
+      else if (inv.type === 'blocked_by') result[p.id].blocks.push(other);
+    }
+  }
+  return result;
+}
+
+/** Parse the start-date tag from an issue description.
+ *  Current format: `Start Date: YYYY-MM-DD`. Legacy format `start: DD-MM-YY` is still read. */
 function parseStartDate(description: string): string | null {
-  const match = description.match(/start:\s*(\d{2})-(\d{2})-(\d{2})/i);
-  if (!match) return null;
-  const [, dd, mm, yy] = match;
-  const year = 2000 + parseInt(yy);
-  const month = parseInt(mm);
-  const day = parseInt(dd);
-  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  // Current format: "Start Date: YYYY-MM-DD"
+  const iso = description.match(/start date:\s*(\d{4})-(\d{2})-(\d{2})/i);
+  if (iso) {
+    const [, yyyy, mm, dd] = iso;
+    const month = parseInt(mm);
+    const day = parseInt(dd);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  // Legacy format: "start: DD-MM-YY"
+  const legacy = description.match(/start:\s*(\d{2})-(\d{2})-(\d{2})/i);
+  if (legacy) {
+    const [, dd, mm, yy] = legacy;
+    const year = 2000 + parseInt(yy);
+    const month = parseInt(mm);
+    const day = parseInt(dd);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+
+  return null;
 }
 
 export async function fetchIssues(
   apiKey: string,
   projectId: string,
 ): Promise<{
+  projectId: string;
   projectName: string;
+  projectStartDate: string | null;
+  projectTargetDate: string | null;
   tasks: Task[];
   doneTasks: Task[];
   unscheduledTasks: Task[];
@@ -191,7 +299,7 @@ export async function fetchIssues(
             state { name type }
             createdAt
             completedAt
-            assignee { name }
+            assignee { id name }
             team { id }
           }
         }
@@ -207,7 +315,7 @@ export async function fetchIssues(
             state { name type }
             createdAt
             completedAt
-            assignee { name }
+            assignee { id name }
             team { id }
           }
         }
@@ -227,7 +335,7 @@ export async function fetchIssues(
     state: { name: string; type: string } | null;
     createdAt: string;
     completedAt: string | null;
-    assignee: { name: string } | null;
+    assignee: { id: string; name: string } | null;
     team: { id: string } | null;
   }
 
@@ -346,7 +454,10 @@ export async function fetchIssues(
       status: n.state?.name || '',
       statusType: n.state?.type || '',
       assignee: n.assignee?.name || 'Unassigned',
+      assigneeId: n.assignee?.id,
       teamId: n.team?.id || '',
+      projectId,
+      projectName: project.name,
       blocks: rel.blocks,
       blockedBy: rel.blockedBy,
       progress,
@@ -397,7 +508,16 @@ export async function fetchIssues(
     targetDate: m.targetDate,
   }));
 
-  return { projectName: project.name, tasks, doneTasks, unscheduledTasks, milestones };
+  return {
+    projectId,
+    projectName: project.name,
+    projectStartDate: project.startDate,
+    projectTargetDate: project.targetDate,
+    tasks,
+    doneTasks,
+    unscheduledTasks,
+    milestones,
+  };
 }
 
 // ---- Mutations (with debouncing for drag operations) ----
@@ -423,16 +543,18 @@ export async function updateIssueStartDate(apiKey: string, issueId: string, star
     const issue = data.issue as { description: string | null };
     const currentDesc: string = issue?.description || '';
 
-    // Format the new start tag: start: DD-MM-YY
-    const d = new Date(startDate + 'T00:00:00');
-    const dd = String(d.getDate()).padStart(2, '0');
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const yy = String(d.getFullYear()).slice(-2);
-    const newTag = `start: ${dd}-${mm}-${yy}`;
+    // Format the new start tag: "Start Date: YYYY-MM-DD" (startDate is already YYYY-MM-DD)
+    const newTag = `Start Date: ${startDate}`;
+
+    const newFormat = /start date:\s*\d{4}-\d{2}-\d{2}/i;
+    const legacyFormat = /start:\s*\d{2}-\d{2}-\d{2}/i;
 
     let newDesc: string;
-    if (/start:\s*\d{2}-\d{2}-\d{2}/i.test(currentDesc)) {
-      newDesc = currentDesc.replace(/start:\s*\d{2}-\d{2}-\d{2}/i, newTag);
+    if (newFormat.test(currentDesc)) {
+      newDesc = currentDesc.replace(newFormat, newTag);
+    } else if (legacyFormat.test(currentDesc)) {
+      // Migrate any legacy "start: DD-MM-YY" tag to the new format
+      newDesc = currentDesc.replace(legacyFormat, newTag);
     } else {
       newDesc = currentDesc.trim() ? `${currentDesc.trim()}\n${newTag}` : newTag;
     }
@@ -449,6 +571,22 @@ export async function updateIssueStartDate(apiKey: string, issueId: string, star
   });
 }
 
+/** Remove the GanttSmart start-date tag from an issue description (clears its start date). */
+export async function clearIssueStartDate(apiKey: string, issueId: string): Promise<void> {
+  await debouncedApiCall(`start-${issueId}`, async () => {
+    const data = await gql(apiKey, `query($id: String!) { issue(id: $id) { description } }`, { id: issueId });
+    const issue = data.issue as { description: string | null };
+    const { body } = extractStartTag(issue?.description || '');
+    await gql(
+      apiKey,
+      `mutation($id: String!, $description: String!) {
+        issueUpdate(id: $id, input: { description: $description }) { success }
+      }`,
+      { id: issueId, description: body },
+    );
+  });
+}
+
 export async function updateIssueState(apiKey: string, issueId: string, stateId: string): Promise<void> {
   await gql(
     apiKey,
@@ -459,6 +597,110 @@ export async function updateIssueState(apiKey: string, issueId: string, stateId:
     }`,
     { id: issueId, stateId },
   );
+}
+
+export async function updateIssueTitle(apiKey: string, issueId: string, title: string): Promise<void> {
+  await gql(
+    apiKey,
+    `mutation($id: String!, $title: String!) {
+      issueUpdate(id: $id, input: { title: $title }) { success }
+    }`,
+    { id: issueId, title },
+  );
+}
+
+export async function updateIssuePriority(apiKey: string, issueId: string, priority: number): Promise<void> {
+  await gql(
+    apiKey,
+    `mutation($id: String!, $priority: Int!) {
+      issueUpdate(id: $id, input: { priority: $priority }) { success }
+    }`,
+    { id: issueId, priority },
+  );
+}
+
+export async function updateIssueAssignee(
+  apiKey: string,
+  issueId: string,
+  assigneeId: string | null,
+): Promise<void> {
+  await gql(
+    apiKey,
+    `mutation($id: String!, $assigneeId: String) {
+      issueUpdate(id: $id, input: { assigneeId: $assigneeId }) { success }
+    }`,
+    { id: issueId, assigneeId },
+  );
+}
+
+/** Update the description body, preserving the GanttSmart start-date tag stored within it. */
+export async function updateIssueDescription(apiKey: string, issueId: string, body: string): Promise<void> {
+  const data = await gql(apiKey, `query($id: String!) { issue(id: $id) { description } }`, { id: issueId });
+  const issue = data.issue as { description: string | null };
+  const { tag } = extractStartTag(issue?.description || '');
+  const newDesc = combineDescription(body, tag);
+
+  await gql(
+    apiKey,
+    `mutation($id: String!, $description: String!) {
+      issueUpdate(id: $id, input: { description: $description }) { success }
+    }`,
+    { id: issueId, description: newDesc },
+  );
+}
+
+export async function fetchUsers(apiKey: string): Promise<User[]> {
+  const data = await gql(
+    apiKey,
+    `query {
+      users(first: 250, filter: { active: { eq: true } }) {
+        nodes { id name }
+      }
+    }`,
+  );
+  const users = data.users as { nodes: User[] };
+  return users.nodes.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Fetch all teams in the workspace (for the team picker when creating issues). */
+export async function fetchTeams(apiKey: string): Promise<Team[]> {
+  const data = await gql(
+    apiKey,
+    `query {
+      teams(first: 250) {
+        nodes { id name key }
+      }
+    }`,
+  );
+  const teams = data.teams as { nodes: Team[] };
+  return teams.nodes.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export interface NewIssueInput {
+  teamId: string;
+  projectId: string;
+  title: string;
+  description?: string;
+}
+
+/** Create a new Linear issue in the given team/project. Returns the new issue's UUID + identifier. */
+export async function createIssue(
+  apiKey: string,
+  input: NewIssueInput,
+): Promise<{ id: string; identifier: string }> {
+  const data = await gql(
+    apiKey,
+    `mutation($input: IssueCreateInput!) {
+      issueCreate(input: $input) {
+        success
+        issue { id identifier }
+      }
+    }`,
+    { input },
+  );
+  const result = data.issueCreate as { success: boolean; issue: { id: string; identifier: string } | null };
+  if (!result?.success || !result.issue) throw new Error('Linear did not create the issue');
+  return result.issue;
 }
 
 export async function createIssueRelation(

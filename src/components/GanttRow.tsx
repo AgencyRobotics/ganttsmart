@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import type { Task } from '@/types';
 import type { TaskBaseline } from '@/hooks/usePlanningHistory';
-import type { ColumnWidths } from './GanttChart';
+import { MIN_COLUMN_WIDTHS, type ColumnKey, type ColumnWidths } from '@/utils/columns';
 import { Avatar } from '@/utils/avatar';
 import { isSafeUrl } from '@/utils/url';
 import {
@@ -22,6 +22,7 @@ interface Props {
   today: Date;
   dayWidth: number;
   colWidths: ColumnWidths;
+  visibleColumns: ColumnKey[];
   onReschedule?: (taskUuid: string, newDueDate: string) => Promise<void>;
   onRescheduleStart?: (taskUuid: string, newStartDate: string) => Promise<void>;
   onCycleStatus?: (taskUuid: string) => Promise<void>;
@@ -39,6 +40,7 @@ export default function GanttRow({
   today,
   dayWidth,
   colWidths,
+  visibleColumns,
   onReschedule,
   onRescheduleStart,
   onCycleStatus,
@@ -439,9 +441,13 @@ export default function GanttRow({
               )}
             </div>
             <div
-              className={`text-[13px] font-medium text-text-primary leading-snug truncate ${isDone ? 'line-through opacity-70' : ''}`}
+              className={`text-[13px] font-medium text-text-primary leading-snug truncate cursor-pointer hover:text-accent transition-colors ${isDone ? 'line-through opacity-70' : ''}`}
               style={{ maxWidth: colWidths.task - 60 }}
               title={task.title}
+              onClick={(e) => {
+                e.stopPropagation();
+                openDetailPanel(task);
+              }}
             >
               {task.title}
             </div>
@@ -449,52 +455,108 @@ export default function GanttRow({
         </div>
       </td>
 
-      {/* Priority */}
-      <td
-        className="h-[56px] px-3 border-b border-r border-border-primary align-middle"
-        style={{ width: colWidths.priority, minWidth: 80 }}
-      >
-        <span
-          className={`inline-flex items-center gap-1.5 text-[11px] font-semibold py-[3px] pl-[7px] pr-2 rounded-full ${priorityBadgeClasses[pCls]}`}
-        >
-          <span
-            className="w-[6px] h-[6px] rounded-full shrink-0"
-            style={{
-              backgroundColor: idColors[pCls],
-              boxShadow: `0 0 5px ${idColors[pCls]}`,
-            }}
-          />
-          {task.priority}
-        </span>
-      </td>
-
-      {/* Due date */}
-      <td
-        className="h-[56px] px-3 text-[11.5px] whitespace-nowrap border-b border-r border-border-primary align-middle font-mono tabular-nums"
-        style={{
-          width: colWidths.due,
-          minWidth: 70,
-          color: isDone
-            ? 'var(--color-success)'
-            : overdue
-              ? 'var(--color-urgent)'
-              : daysLeft <= 7
-                ? 'var(--color-high)'
-                : 'var(--color-text-secondary)',
-        }}
-        title={
-          (hasStartDate ? `${formatDate(task.startDate!)} → ` : '') +
-          formatDate(task.due) +
-          (task.isDueImplicit ? ' (from project target)' : '') +
-          (isDone ? ' · Completed' : overdue ? ` · ${Math.abs(daysLeft)}d late` : ` · ${daysLeft}d left`)
+      {/* Optional columns (driven by the user's saved configuration) */}
+      {visibleColumns.map((key) => {
+        if (key === 'priority') {
+          return (
+            <td
+              key="priority"
+              className="h-[56px] px-3 border-b border-r border-border-primary align-middle"
+              style={{ width: colWidths.priority, minWidth: MIN_COLUMN_WIDTHS.priority }}
+            >
+              <span
+                className={`inline-flex items-center gap-1.5 text-[11px] font-semibold py-[3px] pl-[7px] pr-2 rounded-full ${priorityBadgeClasses[pCls]}`}
+              >
+                <span
+                  className="w-[6px] h-[6px] rounded-full shrink-0"
+                  style={{
+                    backgroundColor: idColors[pCls],
+                    boxShadow: `0 0 5px ${idColors[pCls]}`,
+                  }}
+                />
+                {task.priority}
+              </span>
+            </td>
+          );
         }
-      >
-        {task.isDueImplicit ? (
-          <span className="italic opacity-75">~{formatDate(task.due)}</span>
-        ) : (
-          formatDate(task.due)
-        )}
-      </td>
+
+        if (key === 'status') {
+          return (
+            <td
+              key="status"
+              className="h-[56px] px-3 border-b border-r border-border-primary align-middle"
+              style={{ width: colWidths.status, minWidth: MIN_COLUMN_WIDTHS.status }}
+            >
+              <span className="inline-flex items-center gap-1.5 text-[11.5px] text-text-secondary min-w-0">
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: statusDotColor }} />
+                <span className="truncate" title={task.status}>
+                  {task.status}
+                </span>
+              </span>
+            </td>
+          );
+        }
+
+        if (key === 'assignee') {
+          return (
+            <td
+              key="assignee"
+              className="h-[56px] px-3 border-b border-r border-border-primary align-middle"
+              style={{ width: colWidths.assignee, minWidth: MIN_COLUMN_WIDTHS.assignee }}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <Avatar name={task.assignee} size="sm" />
+                <span className="text-[12px] text-text-secondary truncate" title={task.assignee}>
+                  {task.assignee}
+                </span>
+              </div>
+            </td>
+          );
+        }
+
+        if (key === 'start') {
+          return (
+            <td
+              key="start"
+              className="h-[56px] px-3 text-[11.5px] whitespace-nowrap border-b border-r border-border-primary align-middle font-mono tabular-nums text-text-secondary"
+              style={{ width: colWidths.start, minWidth: MIN_COLUMN_WIDTHS.start }}
+            >
+              {hasStartDate ? formatDate(task.startDate!) : <span className="text-text-muted">—</span>}
+            </td>
+          );
+        }
+
+        // due
+        return (
+          <td
+            key="due"
+            className="h-[56px] px-3 text-[11.5px] whitespace-nowrap border-b border-r border-border-primary align-middle font-mono tabular-nums"
+            style={{
+              width: colWidths.due,
+              minWidth: MIN_COLUMN_WIDTHS.due,
+              color: isDone
+                ? 'var(--color-success)'
+                : overdue
+                  ? 'var(--color-urgent)'
+                  : daysLeft <= 7
+                    ? 'var(--color-high)'
+                    : 'var(--color-text-secondary)',
+            }}
+            title={
+              (hasStartDate ? `${formatDate(task.startDate!)} → ` : '') +
+              formatDate(task.due) +
+              (task.isDueImplicit ? ' (from project target)' : '') +
+              (isDone ? ' · Completed' : overdue ? ` · ${Math.abs(daysLeft)}d late` : ` · ${daysLeft}d left`)
+            }
+          >
+            {task.isDueImplicit ? (
+              <span className="italic opacity-75">~{formatDate(task.due)}</span>
+            ) : (
+              formatDate(task.due)
+            )}
+          </td>
+        );
+      })}
 
       {/* Chart */}
       <td className="h-[56px] p-0 relative border-b border-border-primary align-middle">

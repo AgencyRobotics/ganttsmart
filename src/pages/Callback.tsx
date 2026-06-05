@@ -1,6 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+
+async function edgeFunctionErrorMessage(error: Error): Promise<string> {
+  if (error instanceof FunctionsHttpError) {
+    try {
+      const body = await error.context.json();
+      if (typeof body?.error === 'string') return body.error;
+    } catch {
+      // Fall through to generic message.
+    }
+  }
+  return error.message || 'Edge function error';
+}
 
 export default function Callback() {
   const [searchParams] = useSearchParams();
@@ -54,7 +67,7 @@ export default function Callback() {
       });
 
       if (fnError) {
-        throw new Error(fnError.message || 'Edge function error');
+        throw new Error(await edgeFunctionErrorMessage(fnError));
       }
 
       if (data?.error) {

@@ -6,6 +6,19 @@ interface Props {
 const LINEAR_CLIENT_ID = import.meta.env.VITE_LINEAR_CLIENT_ID;
 const LINEAR_REDIRECT_URI = import.meta.env.VITE_LINEAR_REDIRECT_URI;
 
+/** CSRF state for Linear OAuth. crypto.randomUUID() requires a secure context (HTTPS or localhost). */
+function createOAuthState(): string {
+  if (typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 export default function LinearConnect({ userEmail, onSignOut }: Props) {
   const handleConnect = () => {
     if (!LINEAR_CLIENT_ID) {
@@ -14,7 +27,7 @@ export default function LinearConnect({ userEmail, onSignOut }: Props) {
     }
 
     // Generate state for CSRF protection
-    const state = crypto.randomUUID();
+    const state = createOAuthState();
     sessionStorage.setItem('linear_oauth_state', state);
 
     const params = new URLSearchParams({
