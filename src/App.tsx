@@ -4,6 +4,7 @@ import FilterBar from '@/components/FilterBar';
 import GanttChart from '@/components/GanttChart';
 import Header from '@/components/Header';
 import LinearConnect from '@/components/LinearConnect';
+import NewIssueModal, { type NewIssueTarget } from '@/components/NewIssueModal';
 import Onboarding from '@/components/Onboarding';
 import StatsRow from '@/components/StatsRow';
 import ToastContainer, { toastSuccess } from '@/components/Toast';
@@ -41,6 +42,8 @@ function GanttView({
     selectedProjectId,
     selectedInitiativeId,
     selectedProjectIds,
+    showCompletedProjects,
+    setShowCompletedProjects,
     projectMetas,
     projectName,
     tasks,
@@ -70,6 +73,7 @@ function GanttView({
     createRelation,
     removeRelation,
     createDependentIssue,
+    createIssueInProject,
     editTitle,
     editPriority,
     editStatus,
@@ -78,7 +82,7 @@ function GanttView({
     persistDates,
     rescheduleWithDependents,
     clearStartDate,
-    workflowStates,
+    workflowStatesByTeam,
     users,
     teams,
   } = useLinearData(linearToken, onDisconnectLinear);
@@ -158,6 +162,17 @@ function GanttView({
 
   const [baselineBulkBusy, setBaselineBulkBusy] = useState(false);
 
+  // "+" on a project header opens a modal to create a new issue in that project.
+  const [newIssueTarget, setNewIssueTarget] = useState<NewIssueTarget | null>(null);
+  const handleAddIssueToProject = useCallback(
+    (projectId: string, projectName: string) => {
+      // Default the team to whatever team the project's existing issues belong to.
+      const defaultTeamId = tasks.find((t) => t.projectId === projectId)?.teamId;
+      setNewIssueTarget({ projectId, projectName, defaultTeamId });
+    },
+    [tasks],
+  );
+
   const acceptAllBaselines = useCallback(async () => {
     if (baselineBulkBusy || driftedTasks.length === 0) return;
     if (
@@ -217,7 +232,7 @@ function GanttView({
       rescheduleStart: rescheduleStartWithHistory,
       acceptBaseline,
       revertBaseline,
-      workflowStates,
+      workflowStatesByTeam,
       users,
       teams,
     });
@@ -232,7 +247,7 @@ function GanttView({
     rescheduleStartWithHistory,
     acceptBaseline,
     revertBaseline,
-    workflowStates,
+    workflowStatesByTeam,
     users,
     teams,
   ]);
@@ -295,6 +310,8 @@ function GanttView({
         onSelectInitiative={selectInitiative}
         selectedProjectIds={selectedProjectIds}
         onVisibleProjectIdsChange={setVisibleProjectIds}
+        showCompletedProjects={showCompletedProjects}
+        onShowCompletedProjectsChange={setShowCompletedProjects}
         assignees={assignees}
         statuses={statuses}
         filters={filters}
@@ -330,12 +347,19 @@ function GanttView({
           onRescheduleStart={rescheduleStartWithHistory}
           onCycleStatus={cycleStatusWithHistory}
           onCreateRelation={createRelation}
+          onAddIssueToProject={selectedInitiativeId ? handleAddIssueToProject : undefined}
           baselines={baselines}
           dateFrom={filters.dateFrom}
           dateTo={filters.dateTo}
         />
       </div>
 
+      <NewIssueModal
+        target={newIssueTarget}
+        teams={teams}
+        onClose={() => setNewIssueTarget(null)}
+        onCreate={createIssueInProject}
+      />
       <DetailPanel />
       <ToastContainer />
     </div>

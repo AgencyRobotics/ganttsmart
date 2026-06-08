@@ -31,6 +31,8 @@ interface Props {
   onRescheduleStart?: (taskUuid: string, newStartDate: string) => Promise<void>;
   onCycleStatus?: (taskUuid: string) => Promise<void>;
   onCreateRelation?: (sourceTaskId: string, targetTaskId: string) => Promise<void>;
+  /** Initiative mode: add a new issue to a specific project (from the project header "+"). */
+  onAddIssueToProject?: (projectId: string, projectName: string) => void;
   baselines?: Map<string, TaskBaseline>;
   dateFrom?: string;
   dateTo?: string;
@@ -142,6 +144,7 @@ export default function GanttChart({
                                      onRescheduleStart,
                                      onCycleStatus,
                                      onCreateRelation,
+                                     onAddIssueToProject,
                                      baselines,
                                      dateFrom,
                                      dateTo,
@@ -664,6 +667,7 @@ export default function GanttChart({
                   isConnecting={isConnecting}
                   depViolations={depViolations}
                   baselines={baselines}
+                  onAddIssueToProject={onAddIssueToProject}
                 />
               ))
             : groups.map((group) => (
@@ -935,11 +939,13 @@ function GroupRows({
                      isConnecting,
                      depViolations,
                      baselines,
+                     onAddIssueToProject,
                    }: {
   group: { key: string; label: string; tasks: Task[] };
   groupBy: GroupBy;
   showHeader: boolean;
   projectMeta?: ProjectMeta;
+  onAddIssueToProject?: (projectId: string, projectName: string) => void;
   isCollapsed: boolean;
   onToggle: () => void;
   chartStart: Date;
@@ -993,6 +999,21 @@ function GroupRows({
               </svg>
               <span className="truncate">{group.label}</span>
               <span className="text-text-muted font-normal">({group.tasks.length})</span>
+              {onAddIssueToProject && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onAddIssueToProject(projectMeta.id, projectMeta.name);
+                  }}
+                  className="ml-1 flex items-center justify-center w-5 h-5 rounded text-text-muted hover:text-accent hover:bg-accent/10 transition-colors cursor-pointer shrink-0"
+                  title={`Add a new issue to ${projectMeta.name}`}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                  </svg>
+                </button>
+              )}
             </div>
           </td>
           <td className="p-0 relative border-b border-border-primary bg-bg-header/30 align-middle">
@@ -1008,6 +1029,26 @@ function GroupRows({
             </div>
           </td>
         </tr>
+        {!isCollapsed &&
+          group.tasks.map((task) => (
+            <GanttRow
+              key={task.id}
+              task={task}
+              chartStart={chartStart}
+              totalDays={totalDays}
+              today={today}
+              dayWidth={dayWidth}
+              colWidths={colWidths}
+              visibleColumns={visibleColumns}
+              onReschedule={onReschedule}
+              onRescheduleStart={onRescheduleStart}
+              onCycleStatus={onCycleStatus}
+              onConnectStart={onConnectStart}
+              isConnecting={isConnecting}
+              depViolation={depViolations?.get(task.id)}
+              baseline={baselines?.get(task.id)}
+            />
+          ))}
       </>
     );
   }

@@ -28,7 +28,7 @@ interface PanelEditContext {
   rescheduleStart: (taskUuid: string, newStartDate: string) => Promise<void>;
   acceptBaseline: (task: Task) => Promise<void>;
   revertBaseline: (task: Task) => Promise<void>;
-  workflowStates: WorkflowState[];
+  workflowStatesByTeam: Record<string, WorkflowState[]>;
   users: User[];
   teams: Team[];
 }
@@ -206,12 +206,13 @@ export default function DetailPanel() {
     icon: priorityDot(priorityColors[PRIORITY_MAP[val]] || '#52525b'),
   }));
 
-  const statusOptions: DropdownOption[] = (ctx?.workflowStates || []).map((s) => ({
+  const teamStates = ctx?.workflowStatesByTeam[task.teamId] || [];
+  const statusOptions: DropdownOption[] = teamStates.map((s) => ({
     value: s.id,
     label: s.name,
     icon: priorityDot(statusDotColors[s.type] || '#52525b'),
   }));
-  const currentStateId = ctx?.workflowStates.find((s) => s.name === task.status)?.id || '';
+  const currentStateId = teamStates.find((s) => s.name === task.status)?.id || '';
 
   const assigneeOptions: DropdownOption[] = (ctx?.users || []).map((u) => ({
     value: u.id,
@@ -220,7 +221,7 @@ export default function DetailPanel() {
   }));
 
   const handleStatusChange = (stateId: string) => {
-    const state = ctx?.workflowStates.find((s) => s.id === stateId);
+    const state = teamStates.find((s) => s.id === stateId);
     if (!ctx || !state) return;
     patchLocalTask({ status: state.name, statusType: state.type });
     ctx.editStatus(task.uuid, stateId);

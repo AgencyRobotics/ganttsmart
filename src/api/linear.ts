@@ -156,7 +156,7 @@ export async function fetchInitiatives(apiKey: string): Promise<Initiative[]> {
           id
           name
           projects(first: 50) {
-            nodes { id name }
+            nodes { id name state }
           }
         }
       }
@@ -260,9 +260,17 @@ function parseStartDate(description: string): string | null {
   return null;
 }
 
+export interface FetchIssuesOptions {
+  /** Skip completed issues (saves a whole connection). Defaults to true (fetch them). */
+  includeDone?: boolean;
+  /** Skip the sub-issue/progress fetch (the heaviest part). Defaults to true (fetch them). */
+  includeChildren?: boolean;
+}
+
 export async function fetchIssues(
   apiKey: string,
   projectId: string,
+  opts: FetchIssuesOptions = {},
 ): Promise<{
   projectId: string;
   projectName: string;
@@ -273,6 +281,29 @@ export async function fetchIssues(
   unscheduledTasks: Task[];
   milestones: Milestone[];
 }> {
+  const { includeDone = true, includeChildren = true } = opts;
+
+  const issueFields = `
+    id
+    identifier
+    title
+    description
+    dueDate
+    url
+    priority
+    state { name type }
+    createdAt
+    completedAt
+    updatedAt
+    assignee { id name }
+    team { id }`;
+
+  const doneIssuesBlock = includeDone
+    ? `doneIssues: issues(first: 100, filter: { completedAt: { null: false } }) {
+          nodes { ${issueFields} }
+        }`
+    : '';
+
   const data = await gql(
     apiKey,
     `query($id: String!) {
@@ -288,37 +319,9 @@ export async function fetchIssues(
           }
         }
         issues(first: 250, filter: { completedAt: { null: true } }) {
-          nodes {
-            id
-            identifier
-            title
-            description
-            dueDate
-            url
-            priority
-            state { name type }
-            createdAt
-            completedAt
-            assignee { id name }
-            team { id }
-          }
+          nodes { ${issueFields} }
         }
-        doneIssues: issues(first: 100, filter: { completedAt: { null: false } }) {
-          nodes {
-            id
-            identifier
-            title
-            description
-            dueDate
-            url
-            priority
-            state { name type }
-            createdAt
-            completedAt
-            assignee { id name }
-            team { id }
-          }
-        }
+        ${doneIssuesBlock}
       }
     }`,
     { id: projectId },
@@ -335,6 +338,7 @@ export async function fetchIssues(
     state: { name: string; type: string } | null;
     createdAt: string;
     completedAt: string | null;
+    updatedAt?: string | null;
     assignee: { id: string; name: string } | null;
     team: { id: string } | null;
   }
@@ -371,6 +375,15 @@ export async function fetchIssues(
 
   if (issueIds.length > 0) {
     try {
+      const childrenBlock = includeChildren
+        ? `children {
+                nodes {
+                  id
+                  completedAt
+                }
+              }`
+        : '';
+
       const detailData = await gql(
         apiKey,
         `query($ids: [ID!]!) {
@@ -378,18 +391,13 @@ export async function fetchIssues(
             nodes {
               id
               identifier
-              relations {
+              relations(first: 25) {
                 nodes {
                   type
                   relatedIssue { identifier }
                 }
               }
-              children {
-                nodes {
-                  id
-                  completedAt
-                }
-              }
+              ${childrenBlock}
             }
           }
         }`,
@@ -464,6 +472,7 @@ export async function fetchIssues(
       totalChildren: ch.total,
       completedChildren: ch.completed,
       completedAt: n.completedAt || undefined,
+      updatedAt: n.updatedAt || undefined,
       isDueImplicit: isDueImplicit || undefined,
     };
   }
@@ -518,6 +527,188 @@ export async function fetchIssues(
     unscheduledTasks,
     milestones,
   };
+}
+
+export interface ManifestEntry {
+  uuid: string;
+  updatedAt: string;
+}
+
+/**
+ * Cheap "what exists / what changed" query: fetches only id + updatedAt for the issues
+ * in the given projects (paginated). Used to diff against the cache so we only hydrate
+ * the issues that actually changed — a fraction of the complexity of a full reload.
+ */
+export async function fetchIssueManifest(
+  apiKey: string,
+  projectIds: string[],
+  includeDone = true,
+): Promise<ManifestEntry[]> {
+  if (projectIds.length === 0) return [];
+
+  const completedFilter = includeDone ? '' : ', completedAt: { null: true }';
+  const entries: ManifestEntry[] = [];
+  let cursor: string | null = null;
+
+  // Paginate to be safe on large scopes; each page is tiny (2 fields/issue).
+  for (let page = 0; page < 50; page++) {
+    const data: Record<string, unknown> = await gql(
+      apiKey,
+      `query($ids: [ID!]!, $after: String) {
+        issues(
+          first: 250
+          after: $after
+          filter: { project: { id: { in: $ids } }${completedFilter} }
+        ) {
+          pageInfo { hasNextPage endCursor }
+          nodes { id updatedAt }
+        }
+      }`,
+      { ids: projectIds, after: cursor },
+    );
+
+    const issues = data.issues as {
+      pageInfo: { hasNextPage: boolean; endCursor: string | null };
+      nodes: Array<{ id: string; updatedAt: string }>;
+    };
+    for (const n of issues.nodes) entries.push({ uuid: n.id, updatedAt: n.updatedAt });
+
+    if (!issues.pageInfo.hasNextPage) break;
+    cursor = issues.pageInfo.endCursor;
+  }
+
+  return entries;
+}
+
+/**
+ * Hydrate full data (fields + relations, optionally children) for a specific set of issue
+ * UUIDs, bucketed like fetchIssues. Used to fetch only the issues that changed during a
+ * sync. Each issue carries its own project info so effective-due and tagging are correct.
+ */
+export async function fetchIssuesByIds(
+  apiKey: string,
+  uuids: string[],
+  opts: FetchIssuesOptions = {},
+): Promise<{ tasks: Task[]; unscheduledTasks: Task[]; doneTasks: Task[] }> {
+  if (uuids.length === 0) return { tasks: [], unscheduledTasks: [], doneTasks: [] };
+  const { includeChildren = true } = opts;
+
+  const childrenBlock = includeChildren
+    ? `children { nodes { id completedAt } }`
+    : '';
+
+  const data = await gql(
+    apiKey,
+    `query($ids: [ID!]!) {
+      issues(filter: { id: { in: $ids } }) {
+        nodes {
+          id
+          identifier
+          title
+          description
+          dueDate
+          url
+          priority
+          state { name type }
+          createdAt
+          completedAt
+          updatedAt
+          assignee { id name }
+          team { id }
+          project { id name startDate targetDate }
+          relations(first: 25) { nodes { type relatedIssue { identifier } } }
+          ${childrenBlock}
+        }
+      }
+    }`,
+    { ids: uuids },
+  );
+
+  interface Node {
+    id: string;
+    identifier: string;
+    title: string;
+    description: string | null;
+    dueDate: string | null;
+    url: string;
+    priority: number;
+    state: { name: string; type: string } | null;
+    createdAt: string;
+    completedAt: string | null;
+    updatedAt: string | null;
+    assignee: { id: string; name: string } | null;
+    team: { id: string } | null;
+    project: { id: string; name: string; startDate: string | null; targetDate: string | null } | null;
+    relations?: { nodes: Array<{ type: string; relatedIssue: { identifier: string } }> };
+    children?: { nodes: Array<{ id: string; completedAt: string | null }> };
+  }
+
+  const nodes = (data.issues as { nodes: Node[] }).nodes;
+
+  const tasks: Task[] = [];
+  const unscheduledTasks: Task[] = [];
+  const doneTasks: Task[] = [];
+
+  const todayStr = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
+
+  for (const n of nodes) {
+    const blocks: string[] = [];
+    const blockedBy: string[] = [];
+    for (const rel of n.relations?.nodes || []) {
+      if (rel.type === 'blocks') blocks.push(rel.relatedIssue.identifier);
+      else if (rel.type === 'blocked_by') blockedBy.push(rel.relatedIssue.identifier);
+    }
+    const children = n.children?.nodes || [];
+    const totalChildren = children.length;
+    const completedChildren = children.filter((c) => c.completedAt !== null).length;
+    const progress = totalChildren > 0 ? Math.round((completedChildren / totalChildren) * 100) : 0;
+
+    const projectTargetDate = n.project?.targetDate || null;
+    const explicitDue = n.dueDate;
+    const due = explicitDue || projectTargetDate || todayStr;
+    const isDueImplicit = !explicitDue;
+
+    const task: Task = {
+      id: n.identifier,
+      uuid: n.id,
+      title: n.title,
+      description: n.description || '',
+      due,
+      startDate: parseStartDate(n.description || ''),
+      url: n.url,
+      priorityVal: n.priority,
+      priority: PRIORITY_MAP[n.priority] || 'None',
+      status: n.state?.name || '',
+      statusType: n.state?.type || '',
+      assignee: n.assignee?.name || 'Unassigned',
+      assigneeId: n.assignee?.id,
+      teamId: n.team?.id || '',
+      projectId: n.project?.id,
+      projectName: n.project?.name,
+      blocks,
+      blockedBy,
+      progress,
+      totalChildren,
+      completedChildren,
+      completedAt: n.completedAt || undefined,
+      updatedAt: n.updatedAt || undefined,
+      isDueImplicit: isDueImplicit || undefined,
+    };
+
+    if (n.completedAt) {
+      // Only keep completed issues that can be placed on the timeline.
+      if (explicitDue || projectTargetDate) doneTasks.push(task);
+    } else if (explicitDue || projectTargetDate) {
+      tasks.push(task);
+    } else {
+      unscheduledTasks.push(task);
+    }
+  }
+
+  return { tasks, unscheduledTasks, doneTasks };
 }
 
 // ---- Mutations (with debouncing for drag operations) ----

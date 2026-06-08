@@ -627,13 +627,17 @@ export default function GanttRow({
                 style={{ width: progressWidth }}
               />
             )}
-            {/* Label inside bar — status at rest, drag feedback when dragging */}
+            {/* Label inside bar — ticket name (truncated) at rest, drag feedback when dragging */}
             {!barIsNarrow && (
               <span
                 className="relative z-[1] whitespace-nowrap tracking-[0.01em]"
                 style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}
               >
-                {isAnyDrag ? barLabel : isDone ? '✓ Done' : task.status}
+                {isAnyDrag
+                  ? barLabel
+                  : task.title.length > 30
+                    ? `${task.title.slice(0, 30)}…`
+                    : task.title}
               </span>
             )}
 
