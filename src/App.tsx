@@ -74,6 +74,7 @@ function GanttView({
     removeRelation,
     createDependentIssue,
     createIssueInProject,
+    editProjectDates,
     editTitle,
     editPriority,
     editStatus,
@@ -348,6 +349,7 @@ function GanttView({
           onCycleStatus={cycleStatusWithHistory}
           onCreateRelation={createRelation}
           onAddIssueToProject={selectedInitiativeId ? handleAddIssueToProject : undefined}
+          onEditProjectDates={selectedInitiativeId ? editProjectDates : undefined}
           baselines={baselines}
           dateFrom={filters.dateFrom}
           dateTo={filters.dateTo}
