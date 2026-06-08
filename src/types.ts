@@ -21,6 +21,8 @@ export interface Task {
   totalChildren: number;
   completedChildren: number;
   completedAt?: string;
+  /** Linear's last-updated timestamp (ISO). Used for incremental cache sync. */
+  updatedAt?: string;
   /** True when `due` was derived from project.targetDate (issue has no explicit due date) */
   isDueImplicit?: boolean;
 }
@@ -30,6 +32,8 @@ export interface Project {
   name: string;
   startDate?: string | null;
   targetDate?: string | null;
+  /** Linear project state: backlog | planned | started | paused | completed | canceled */
+  state?: string | null;
 }
 
 export interface Initiative {
@@ -44,6 +48,7 @@ export interface ProjectMeta {
   name: string;
   startDate: string | null;
   targetDate: string | null;
+  state?: string | null; // Linear project state (e.g. "completed")
   blocks: string[]; // project ids this project blocks
   blockedBy: string[]; // project ids that block this project
 }

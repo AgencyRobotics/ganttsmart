@@ -18,6 +18,8 @@ interface Props {
   onSelectInitiative?: (id: string) => void;
   selectedProjectIds?: string[];
   onVisibleProjectIdsChange?: (ids: string[]) => void;
+  showCompletedProjects?: boolean;
+  onShowCompletedProjectsChange?: (show: boolean) => void;
   assignees: string[];
   statuses: string[];
   filters: Filters;
@@ -119,6 +121,24 @@ function UndoIcon() {
   );
 }
 
+function EyeIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+      <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+function EyeOffIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-7-11-7a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 7 11 7a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24" />
+      <line x1="1" y1="1" x2="23" y2="23" />
+    </svg>
+  );
+}
+
 function XIcon() {
   return (
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
@@ -137,6 +157,8 @@ export default function FilterBar({
   onSelectInitiative,
   selectedProjectIds,
   onVisibleProjectIdsChange,
+  showCompletedProjects = true,
+  onShowCompletedProjectsChange,
   assignees,
   statuses,
   filters,
@@ -241,6 +263,20 @@ export default function FilterBar({
                   selectedIds={selectedProjectIds || []}
                   onChange={onVisibleProjectIdsChange}
                 />
+              )}
+              {selectedInitiativeId && onShowCompletedProjectsChange && (
+                <button
+                  onClick={() => onShowCompletedProjectsChange(!showCompletedProjects)}
+                  className={`h-8 px-2.5 inline-flex items-center gap-1.5 rounded-md border text-xs font-medium cursor-pointer transition-colors shrink-0 ${
+                    showCompletedProjects
+                      ? 'bg-accent/10 border-accent/30 text-accent'
+                      : 'bg-bg-card border-border-primary text-text-muted hover:border-border-secondary hover:text-text-secondary'
+                  }`}
+                  title={showCompletedProjects ? 'Hide completed projects' : 'Show completed projects'}
+                >
+                  {showCompletedProjects ? <EyeIcon /> : <EyeOffIcon />}
+                  Completed
+                </button>
               )}
             </>
           ) : (
