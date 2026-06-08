@@ -28,6 +28,7 @@ import { DEFAULT_DAY_WIDTH, MAX_DAY_WIDTH, MIN_DAY_WIDTH, PRIORITY_MAP } from '@
 import type { Filters, GroupBy, Initiative, Milestone, Project, ProjectMeta, Task, Team, User, WorkflowState } from '@/types';
 import { applyScheduleDefaults } from '@/utils/schedule';
 import { extractStartTag, combineDescription } from '@/utils/description';
+import { parseViewState, buildViewSearch } from '@/utils/urlState';
 import {
   readScopeCache,
   writeScopeCache,
@@ -115,22 +116,28 @@ function localHasRelationsNotInCache(cached: CachedScope, live: Task[]): boolean
 }
 
 export function useLinearData(linearToken: string, onAuthError?: () => void) {
+  // Shareable view state from the URL (scope + filters) takes priority over localStorage.
+  const urlInitRef = useRef(parseViewState(window.location.search));
+  const urlInit = urlInitRef.current;
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [initiatives, setInitiatives] = useState<Initiative[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState(
-    () => localStorage.getItem('linear_selected_project') || '',
+    () => urlInit.projectId || (urlInit.initiativeId ? '' : localStorage.getItem('linear_selected_project') || ''),
   );
   // When set, the chart is in initiative (multi-project) mode.
   const [selectedInitiativeId, setSelectedInitiativeId] = useState(
-    () => localStorage.getItem('linear_selected_initiative') || '',
+    () => urlInit.initiativeId || (urlInit.projectId ? '' : localStorage.getItem('linear_selected_initiative') || ''),
   );
   // Projects in the active initiative that are currently shown (subset toggle).
-  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>(() => urlInit.pids || []);
   // Per-project summary metadata (dates + project-to-project deps) for initiative mode.
   const [projectMetas, setProjectMetas] = useState<ProjectMeta[]>([]);
   // Whether completed projects (and their issues) are shown in initiative mode.
-  const [showCompletedProjects, setShowCompletedProjects] = useState(
-    () => localStorage.getItem('gantt_show_completed_projects') !== 'false',
+  const [showCompletedProjects, setShowCompletedProjects] = useState(() =>
+    urlInit.showCompleted !== undefined
+      ? urlInit.showCompleted
+      : localStorage.getItem('gantt_show_completed_projects') !== 'false',
   );
   const [projectName, setProjectName] = useState('');
 
@@ -153,15 +160,15 @@ export function useLinearData(linearToken: string, onAuthError?: () => void) {
   const [error, setError] = useState('');
   const [lastSynced, setLastSynced] = useState('');
   const [dayWidth, setDayWidth] = useState(DEFAULT_DAY_WIDTH);
-  const [groupBy, setGroupBy] = useState<GroupBy>('none');
-  const [filters, setFilters] = useState<Filters>({
-    assignee: '',
-    status: '',
-    priorities: new Set(DEFAULT_PRIORITIES),
-    search: '',
-    dateFrom: '',
-    dateTo: '',
-  });
+  const [groupBy, setGroupBy] = useState<GroupBy>(() => urlInit.groupBy || 'none');
+  const [filters, setFilters] = useState<Filters>(() => ({
+    assignee: urlInit.filters.assignee || '',
+    status: urlInit.filters.status || '',
+    priorities: urlInit.filters.priorities ?? new Set(DEFAULT_PRIORITIES),
+    search: urlInit.filters.search || '',
+    dateFrom: urlInit.filters.dateFrom || '',
+    dateTo: urlInit.filters.dateTo || '',
+  }));
 
   const initialLoadDone = useRef(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1396,16 +1403,26 @@ export function useLinearData(linearToken: string, onAuthError?: () => void) {
 
         const p = await loadProjects();
 
-        // Restore a previously selected initiative if it still exists.
-        const savedInitiative = localStorage.getItem('linear_selected_initiative') || '';
-        if (savedInitiative && inits.find((i) => i.id === savedInitiative)) {
+        // Restore the selected initiative (from URL or localStorage) if it still exists.
+        const savedInitiative =
+          urlInitRef.current.initiativeId || localStorage.getItem('linear_selected_initiative') || '';
+        const initMatch = savedInitiative ? inits.find((i) => i.id === savedInitiative) : undefined;
+        if (initMatch) {
           setSelectedInitiativeId(savedInitiative);
           await loadInitiativeScope(savedInitiative);
+          // Restore the visible-project subset from the URL, if any are still valid.
+          const urlPids = urlInitRef.current.pids;
+          if (urlPids?.length) {
+            const valid = urlPids.filter((id) => initMatch.projects.some((pr) => pr.id === id));
+            if (valid.length) setSelectedProjectIds(valid);
+          }
           return;
         }
 
         if (!p?.length) return;
-        const target = selectedProjectId && p.find((x) => x.id === selectedProjectId) ? selectedProjectId : p[0].id;
+        // Prefer a URL/last-used project; otherwise default to the first one.
+        const wanted = urlInitRef.current.projectId || selectedProjectId;
+        const target = wanted && p.find((x) => x.id === wanted) ? wanted : p[0].id;
         setSelectedProjectId(target);
         localStorage.setItem('linear_selected_project', target);
         await loadProjectScope(target);
@@ -1476,6 +1493,24 @@ export function useLinearData(linearToken: string, onAuthError?: () => void) {
     setShowCompletedProjects(show);
     localStorage.setItem('gantt_show_completed_projects', show ? 'true' : 'false');
   }, []);
+
+  // Keep the URL in sync with the current scope + filters so the link is shareable.
+  // Runs only after the initial scope has resolved, so startup transitions don't clobber it.
+  useEffect(() => {
+    if (!initialLoadDone.current) return;
+    const init = initiativesRef.current.find((i) => i.id === selectedInitiativeId);
+    const search = buildViewSearch({
+      projectId: selectedProjectId,
+      initiativeId: selectedInitiativeId,
+      selectedProjectIds,
+      allProjectIds: init?.projects.map((pr) => pr.id),
+      groupBy,
+      showCompletedProjects,
+      filters,
+    });
+    const newUrl = `${window.location.pathname}${search ? `?${search}` : ''}`;
+    window.history.replaceState(null, '', newUrl);
+  }, [selectedProjectId, selectedInitiativeId, selectedProjectIds, groupBy, showCompletedProjects, filters]);
 
   return {
     projects,
