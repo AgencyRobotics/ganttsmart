@@ -21,6 +21,7 @@ import {
   updateIssueStartDate,
   updateIssueState,
   updateIssueTitle,
+  updateProjectDates,
 } from '@/api/linear';
 import { toast, toastError, toastSuccess } from '@/components/Toast';
 import { DEFAULT_DAY_WIDTH, MAX_DAY_WIDTH, MIN_DAY_WIDTH, PRIORITY_MAP } from '@/types';
@@ -400,6 +401,7 @@ export function useLinearData(linearToken: string, onAuthError?: () => void) {
 
         const rels = await fetchProjectRelations(linearToken, ids).catch(() => ({}) as Record<string, { blocks: string[]; blockedBy: string[] }>);
         const stateById = new Map(init.projects.map((p) => [p.id, p.state ?? null]));
+        const urlById = new Map(init.projects.map((p) => [p.id, p.url ?? null]));
         const metas: ProjectMeta[] = results
           .map((r) => ({
             id: r.projectId,
@@ -407,6 +409,7 @@ export function useLinearData(linearToken: string, onAuthError?: () => void) {
             startDate: r.projectStartDate,
             targetDate: r.projectTargetDate,
             state: stateById.get(r.projectId) ?? null,
+            url: urlById.get(r.projectId) ?? null,
             blocks: rels[r.projectId]?.blocks || [],
             blockedBy: rels[r.projectId]?.blockedBy || [],
           }))
@@ -627,12 +630,17 @@ export function useLinearData(linearToken: string, onAuthError?: () => void) {
 
       if (cached) {
         applyCachedScope(cached);
-        // Enrich cached metas with the project state/order from the initiative (older caches
-        // predate the `state` field), so the completed-projects toggle works immediately.
+        // Enrich cached metas with the project state/url/order from the initiative (older
+        // caches predate these fields), so the completed toggle and project links work.
         const stateById = new Map(init.projects.map((p) => [p.id, p.state ?? null]));
+        const urlById = new Map(init.projects.map((p) => [p.id, p.url ?? null]));
         setProjectMetas(
           cached.projectMetas
-            .map((m) => ({ ...m, state: stateById.get(m.id) ?? m.state ?? null }))
+            .map((m) => ({
+              ...m,
+              state: stateById.get(m.id) ?? m.state ?? null,
+              url: urlById.get(m.id) ?? m.url ?? null,
+            }))
             .sort(compareProjectMetaByStart),
         );
         appliedSyncedAtRef.current = cached.lastSyncedAt;
@@ -1325,6 +1333,42 @@ export function useLinearData(linearToken: string, onAuthError?: () => void) {
     [linearToken, selectedInitiativeId, selectedProjectIds, loadIssues, loadInitiative],
   );
 
+  // Edit a project's start/target dates (initiative mode). Optimistic with rollback.
+  const editProjectDates = useCallback(
+    async (projectId: string, startDate: string | null, targetDate: string | null) => {
+      if (!linearToken || !selectedInitiativeId) return;
+      const prev = projectMetasRef.current;
+      const next = prev
+        .map((m) => (m.id === projectId ? { ...m, startDate, targetDate } : m))
+        .sort(compareProjectMetaByStart);
+      setProjectMetas(next);
+
+      pendingMutations.current++;
+      try {
+        await updateProjectDates(linearToken, projectId, startDate, targetDate);
+        // Persist to the shared cache so peers and refreshes keep the new dates.
+        const syncedAt = new Date().toISOString();
+        appliedSyncedAtRef.current = syncedAt;
+        writeScopeCache(initiativeScopeKey(selectedInitiativeId), {
+          tasks: tasksRef.current,
+          unscheduledTasks: unscheduledRef.current,
+          doneTasks: doneRef.current,
+          projectMetas: next,
+          milestones: milestonesRef.current,
+          projectName: projectNameRef.current,
+          lastSyncedAt: syncedAt,
+        }).catch((e) => console.warn('Cache write failed:', (e as Error).message));
+        toastSuccess('Project dates updated');
+      } catch (e) {
+        setProjectMetas(prev);
+        toastError(`Failed to update project dates: ${(e as Error).message}`);
+      } finally {
+        pendingMutations.current--;
+      }
+    },
+    [linearToken, selectedInitiativeId],
+  );
+
   // Initial load when token is available
   useEffect(() => {
     if (!linearToken || initialLoadDone.current) return;
@@ -1473,6 +1517,7 @@ export function useLinearData(linearToken: string, onAuthError?: () => void) {
     removeRelation,
     createDependentIssue,
     createIssueInProject,
+    editProjectDates,
     editTitle,
     editPriority,
     editStatus,

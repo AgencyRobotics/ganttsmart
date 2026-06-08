@@ -34,6 +34,8 @@ export interface Project {
   targetDate?: string | null;
   /** Linear project state: backlog | planned | started | paused | completed | canceled */
   state?: string | null;
+  /** Linear web URL for the project. */
+  url?: string | null;
 }
 
 export interface Initiative {
@@ -49,6 +51,7 @@ export interface ProjectMeta {
   startDate: string | null;
   targetDate: string | null;
   state?: string | null; // Linear project state (e.g. "completed")
+  url?: string | null; // Linear web URL for the project
   blocks: string[]; // project ids this project blocks
   blockedBy: string[]; // project ids that block this project
 }

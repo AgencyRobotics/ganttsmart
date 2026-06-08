@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import type { Task } from '@/types';
 import type { TaskBaseline } from '@/hooks/usePlanningHistory';
-import { MIN_COLUMN_WIDTHS, type ColumnKey, type ColumnWidths } from '@/utils/columns';
+import { MIN_COLUMN_WIDTHS, stickyLeftOffsets, type ColumnKey, type ColumnWidths } from '@/utils/columns';
 import { Avatar } from '@/utils/avatar';
 import { isSafeUrl } from '@/utils/url';
 import {
@@ -329,6 +329,10 @@ export default function GanttRow({
   const progressWidth = task.totalChildren > 0 ? `${task.progress}%` : undefined;
   const statusDotColor = statusDotColors[task.statusType] || '#52525b';
 
+  // Freeze the fixed columns so they stay put while the timeline scrolls horizontally.
+  const sticky = stickyLeftOffsets(colWidths, visibleColumns);
+  const stickyCellCls = 'sticky z-[20] bg-bg-primary group-hover:bg-accent/[0.03]';
+
   // Ghost bar for baseline (planned vs actual) — only show when dates have drifted
   const baselineBar = (() => {
     if (!baseline || isDone) return null;
@@ -352,7 +356,7 @@ export default function GanttRow({
   return (
     <tr
       data-task-id={task.id}
-      className="transition-colors duration-150 hover:bg-accent/[0.03] border-l-2 border-l-transparent hover:border-l-accent focus-within:bg-accent/[0.04] focus-within:border-l-accent"
+      className="group transition-colors duration-150 hover:bg-accent/[0.03] border-l-2 border-l-transparent hover:border-l-accent focus-within:bg-accent/[0.04] focus-within:border-l-accent"
       tabIndex={0}
       role="row"
       aria-label={`${task.id}: ${task.title}, ${task.priority} priority, due ${formatDate(task.due)}, ${task.status}`}
@@ -380,8 +384,8 @@ export default function GanttRow({
     >
       {/* Task info */}
       <td
-        className="h-[56px] px-[18px] border-b border-r border-border-primary align-middle overflow-hidden"
-        style={{ width: colWidths.task, minWidth: 220, maxWidth: colWidths.task }}
+        className={`h-[56px] px-[18px] border-b border-r border-border-primary align-middle overflow-hidden ${stickyCellCls}`}
+        style={{ width: colWidths.task, minWidth: 220, maxWidth: colWidths.task, left: sticky.task }}
       >
         <div className="flex items-center gap-2.5 min-w-0">
           <Avatar name={task.assignee} size="sm" />
@@ -461,8 +465,8 @@ export default function GanttRow({
           return (
             <td
               key="priority"
-              className="h-[56px] px-3 border-b border-r border-border-primary align-middle"
-              style={{ width: colWidths.priority, minWidth: MIN_COLUMN_WIDTHS.priority }}
+              className={`h-[56px] px-3 border-b border-r border-border-primary align-middle ${stickyCellCls}`}
+              style={{ width: colWidths.priority, minWidth: MIN_COLUMN_WIDTHS.priority, left: sticky.cols.priority }}
             >
               <span
                 className={`inline-flex items-center gap-1.5 text-[11px] font-semibold py-[3px] pl-[7px] pr-2 rounded-full ${priorityBadgeClasses[pCls]}`}
@@ -484,8 +488,8 @@ export default function GanttRow({
           return (
             <td
               key="status"
-              className="h-[56px] px-3 border-b border-r border-border-primary align-middle"
-              style={{ width: colWidths.status, minWidth: MIN_COLUMN_WIDTHS.status }}
+              className={`h-[56px] px-3 border-b border-r border-border-primary align-middle ${stickyCellCls}`}
+              style={{ width: colWidths.status, minWidth: MIN_COLUMN_WIDTHS.status, left: sticky.cols.status }}
             >
               <span className="inline-flex items-center gap-1.5 text-[11.5px] text-text-secondary min-w-0">
                 <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: statusDotColor }} />
@@ -501,8 +505,8 @@ export default function GanttRow({
           return (
             <td
               key="assignee"
-              className="h-[56px] px-3 border-b border-r border-border-primary align-middle"
-              style={{ width: colWidths.assignee, minWidth: MIN_COLUMN_WIDTHS.assignee }}
+              className={`h-[56px] px-3 border-b border-r border-border-primary align-middle ${stickyCellCls}`}
+              style={{ width: colWidths.assignee, minWidth: MIN_COLUMN_WIDTHS.assignee, left: sticky.cols.assignee }}
             >
               <div className="flex items-center gap-2 min-w-0">
                 <Avatar name={task.assignee} size="sm" />
@@ -518,8 +522,8 @@ export default function GanttRow({
           return (
             <td
               key="start"
-              className="h-[56px] px-3 text-[11.5px] whitespace-nowrap border-b border-r border-border-primary align-middle font-mono tabular-nums text-text-secondary"
-              style={{ width: colWidths.start, minWidth: MIN_COLUMN_WIDTHS.start }}
+              className={`h-[56px] px-3 text-[11.5px] whitespace-nowrap border-b border-r border-border-primary align-middle font-mono tabular-nums text-text-secondary ${stickyCellCls}`}
+              style={{ width: colWidths.start, minWidth: MIN_COLUMN_WIDTHS.start, left: sticky.cols.start }}
             >
               {hasStartDate ? formatDate(task.startDate!) : <span className="text-text-muted">—</span>}
             </td>
@@ -530,10 +534,11 @@ export default function GanttRow({
         return (
           <td
             key="due"
-            className="h-[56px] px-3 text-[11.5px] whitespace-nowrap border-b border-r border-border-primary align-middle font-mono tabular-nums"
+            className={`h-[56px] px-3 text-[11.5px] whitespace-nowrap border-b border-r border-border-primary align-middle font-mono tabular-nums ${stickyCellCls}`}
             style={{
               width: colWidths.due,
               minWidth: MIN_COLUMN_WIDTHS.due,
+              left: sticky.cols.due,
               color: isDone
                 ? 'var(--color-success)'
                 : overdue

@@ -7,6 +7,7 @@ import {
   COLUMN_DEFS,
   DEFAULT_COLUMN_WIDTHS,
   MIN_COLUMN_WIDTHS,
+  stickyLeftOffsets,
   type ColumnKey,
   type ColumnWidths,
 } from '@/utils/columns';
@@ -33,6 +34,8 @@ interface Props {
   onCreateRelation?: (sourceTaskId: string, targetTaskId: string) => Promise<void>;
   /** Initiative mode: add a new issue to a specific project (from the project header "+"). */
   onAddIssueToProject?: (projectId: string, projectName: string) => void;
+  /** Initiative mode: edit a project's start/target dates. */
+  onEditProjectDates?: (projectId: string, startDate: string | null, targetDate: string | null) => void;
   baselines?: Map<string, TaskBaseline>;
   dateFrom?: string;
   dateTo?: string;
@@ -145,11 +148,13 @@ export default function GanttChart({
                                      onCycleStatus,
                                      onCreateRelation,
                                      onAddIssueToProject,
+                                     onEditProjectDates,
                                      baselines,
                                      dateFrom,
                                      dateTo,
                                    }: Props) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [isPanning, setIsPanning] = useState(false);
   const [doneVisible, setDoneVisible] = useState(false);
   const [unscheduledVisible, setUnscheduledVisible] = useState(true);
   const [colWidths, setColWidths] = useState<ColumnWidths>(DEFAULT_COLUMN_WIDTHS);
@@ -161,6 +166,49 @@ export default function GanttChart({
     () => COLUMN_DEFS.filter((c) => visibleColumns.includes(c.key)),
     [visibleColumns],
   );
+
+  // Click-and-drag anywhere in the pane to pan the timeline. Interactive controls
+  // (bars, resize handles, buttons, links) stop propagation so they keep working.
+  const handlePanStart = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    const el = ganttRef.current;
+    if (!el) return;
+    const target = e.target as HTMLElement;
+    if (
+      target.closest(
+        'button, a, input, textarea, select, [data-task-bar], [data-project-bar], [data-resize-handle]',
+      )
+    )
+      return;
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startLeft = el.scrollLeft;
+    const startTop = el.scrollTop;
+    let active = false;
+
+    const onMove = (ev: MouseEvent) => {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!active) {
+        if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+        active = true;
+        setIsPanning(true);
+      }
+      ev.preventDefault();
+      el.scrollLeft = startLeft - dx;
+      el.scrollTop = startTop - dy;
+    };
+
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      setIsPanning(false);
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, []);
 
   // Connection drag state (imperative for performance — no re-renders during mousemove)
   const innerRef = useRef<HTMLDivElement>(null);
@@ -432,6 +480,7 @@ export default function GanttChart({
   );
 
   const fixedColsWidth = colWidths.task + visibleColDefs.reduce((sum, c) => sum + colWidths[c.key], 0);
+  const stickyOffsets = stickyLeftOffsets(colWidths, visibleColumns);
   const groups = useMemo(() => groupTasks(tasks, groupBy), [tasks, groupBy]);
 
   // Initiative mode: one group per project (ordered by projectMetas), each with a summary bar.
@@ -567,13 +616,17 @@ export default function GanttChart({
     <div
       ref={ganttRef}
       id="gantt-export-target"
-      className="h-full w-full bg-bg-primary overflow-auto print:overflow-visible print:border-0"
+      onMouseDown={handlePanStart}
+      className={`h-full w-full bg-bg-primary overflow-auto print:overflow-visible print:border-0 ${isPanning ? 'cursor-grabbing select-none' : 'cursor-grab'}`}
     >
       <div ref={innerRef} className="relative" style={{minWidth: '100%'}}>
         <table className="border-collapse" style={{width: fixedColsWidth + totalDays * dayWidth}}>
           <thead>
           <tr>
-            <th className={`${thBase} px-[18px]`} style={{width: colWidths.task, minWidth: MIN_COLUMN_WIDTHS.task}}>
+            <th
+              className={`${thBase} px-[18px]`}
+              style={{width: colWidths.task, minWidth: MIN_COLUMN_WIDTHS.task, left: stickyOffsets.task, zIndex: 30}}
+            >
               Task
               <ResizeHandle onResize={makeResizeHandler('task')}/>
             </th>
@@ -581,7 +634,7 @@ export default function GanttChart({
               <th
                 key={col.key}
                 className={`${thBase} px-3`}
-                style={{width: colWidths[col.key], minWidth: MIN_COLUMN_WIDTHS[col.key]}}
+                style={{width: colWidths[col.key], minWidth: MIN_COLUMN_WIDTHS[col.key], left: stickyOffsets.cols[col.key], zIndex: 30}}
               >
                 {col.label}
                 <ResizeHandle onResize={makeResizeHandler(col.key)}/>
@@ -668,6 +721,7 @@ export default function GanttChart({
                   depViolations={depViolations}
                   baselines={baselines}
                   onAddIssueToProject={onAddIssueToProject}
+                  onEditProjectDates={onEditProjectDates}
                 />
               ))
             : groups.map((group) => (
@@ -940,12 +994,14 @@ function GroupRows({
                      depViolations,
                      baselines,
                      onAddIssueToProject,
+                     onEditProjectDates,
                    }: {
   group: { key: string; label: string; tasks: Task[] };
   groupBy: GroupBy;
   showHeader: boolean;
   projectMeta?: ProjectMeta;
   onAddIssueToProject?: (projectId: string, projectName: string) => void;
+  onEditProjectDates?: (projectId: string, startDate: string | null, targetDate: string | null) => void;
   isCollapsed: boolean;
   onToggle: () => void;
   chartStart: Date;
@@ -988,7 +1044,7 @@ function GroupRows({
         <tr className="cursor-pointer hover:bg-accent/[0.04] transition-colors" onClick={onToggle}>
           <td
             colSpan={totalColSpan - 1}
-            className="py-2.5 px-4 border-b border-r border-border-primary bg-bg-header/60 text-xs font-semibold text-text-primary"
+            className="sticky left-0 z-[21] py-2.5 px-4 border-b border-r border-border-primary bg-bg-header text-xs font-semibold text-text-primary"
           >
             <div className="flex items-center gap-2">
               {chevron}
@@ -997,8 +1053,53 @@ function GroupRows({
                 <polyline points="2 17 12 22 22 17" />
                 <polyline points="2 12 12 17 22 12" />
               </svg>
-              <span className="truncate">{group.label}</span>
+              {projectMeta.url ? (
+                <a
+                  href={projectMeta.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="truncate hover:text-accent hover:underline inline-flex items-center gap-1"
+                  title={`Open ${projectMeta.name} in Linear`}
+                >
+                  {group.label}
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-70">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                    <polyline points="15 3 21 3 21 9" />
+                    <line x1="10" y1="14" x2="21" y2="3" />
+                  </svg>
+                </a>
+              ) : (
+                <span className="truncate">{group.label}</span>
+              )}
               <span className="text-text-muted font-normal">({group.tasks.length})</span>
+              {onEditProjectDates && (
+                <span
+                  className="flex items-center gap-1 ml-1 font-normal"
+                  onClick={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
+                  <input
+                    type="date"
+                    value={projectMeta.startDate || ''}
+                    onChange={(e) =>
+                      onEditProjectDates(projectMeta.id, e.target.value || null, projectMeta.targetDate)
+                    }
+                    title="Project start date"
+                    className="h-6 px-1.5 bg-bg-card border border-border-primary rounded text-[11px] text-text-secondary outline-none focus:border-accent cursor-pointer"
+                  />
+                  <span className="text-text-muted">→</span>
+                  <input
+                    type="date"
+                    value={projectMeta.targetDate || ''}
+                    onChange={(e) =>
+                      onEditProjectDates(projectMeta.id, projectMeta.startDate, e.target.value || null)
+                    }
+                    title="Project target date"
+                    className="h-6 px-1.5 bg-bg-card border border-border-primary rounded text-[11px] text-text-secondary outline-none focus:border-accent cursor-pointer"
+                  />
+                </span>
+              )}
               {onAddIssueToProject && (
                 <button
                   onClick={(e) => {
@@ -1061,7 +1162,7 @@ function GroupRows({
             colSpan={totalColSpan}
             className="py-2.5 px-4 border-b border-border-primary bg-bg-header/50 text-xs font-semibold text-text-secondary"
           >
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 sticky left-4 w-fit">
               {chevron}
               {groupBy === 'assignee' && <Avatar name={group.label} size="sm"/>}
               {group.label}

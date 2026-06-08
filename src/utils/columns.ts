@@ -44,6 +44,22 @@ export const MIN_COLUMN_WIDTHS: ColumnWidths = {
   due: 70,
 };
 
+// Cumulative left offsets (px) used to freeze the fixed columns while the timeline scrolls.
+// Task is always pinned at left:0; each subsequent visible column is offset by the running
+// total of the widths before it. Order must match the rendered column order.
+export function stickyLeftOffsets(
+  colWidths: ColumnWidths,
+  visibleColumns: ColumnKey[],
+): { task: number; cols: Record<string, number> } {
+  let offset = colWidths.task ?? 0;
+  const cols: Record<string, number> = {};
+  for (const key of visibleColumns) {
+    cols[key] = offset;
+    offset += colWidths[key] ?? 0;
+  }
+  return { task: 0, cols };
+}
+
 // Normalize a stored value (which may be null/garbage) into a valid, canonically-ordered list.
 export function sanitizeVisibleColumns(input: unknown): ColumnKey[] {
   if (!Array.isArray(input)) return [...DEFAULT_VISIBLE_COLUMNS];

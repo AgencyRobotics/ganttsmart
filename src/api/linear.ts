@@ -156,7 +156,7 @@ export async function fetchInitiatives(apiKey: string): Promise<Initiative[]> {
           id
           name
           projects(first: 50) {
-            nodes { id name state }
+            nodes { id name state url }
           }
         }
       }
@@ -837,6 +837,24 @@ export async function updateIssueDescription(apiKey: string, issueId: string, bo
       issueUpdate(id: $id, input: { description: $description }) { success }
     }`,
     { id: issueId, description: newDesc },
+  );
+}
+
+/** Update a project's start and/or target dates. Pass null to clear a date. */
+export async function updateProjectDates(
+  apiKey: string,
+  projectId: string,
+  startDate: string | null,
+  targetDate: string | null,
+): Promise<void> {
+  await gql(
+    apiKey,
+    `mutation($id: String!, $startDate: TimelessDate, $targetDate: TimelessDate) {
+      projectUpdate(id: $id, input: { startDate: $startDate, targetDate: $targetDate }) {
+        success
+      }
+    }`,
+    { id: projectId, startDate, targetDate },
   );
 }
 
