@@ -501,6 +501,21 @@ export default function GanttChart({
     }));
   }, [groupByProject, tasks, projectMetas]);
 
+  // In initiative view, default each project to collapsed the first time it appears. Tracking
+  // "seen" keys means a project the user manually expands won't snap shut on data refreshes.
+  const seenProjectKeysRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!groupByProject) return;
+    const newKeys = projectGroups.map((g) => g.key).filter((k) => !seenProjectKeysRef.current.has(k));
+    if (newKeys.length === 0) return;
+    newKeys.forEach((k) => seenProjectKeysRef.current.add(k));
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      newKeys.forEach((k) => next.add(k));
+      return next;
+    });
+  }, [groupByProject, projectGroups]);
+
   // total table columns = Task + visible optional columns + the chart column
   const totalColSpan = visibleColDefs.length + 2;
 
