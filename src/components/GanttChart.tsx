@@ -13,6 +13,7 @@ import {
 } from '@/utils/columns';
 import DependencyArrows from './DependencyArrows';
 import ProjectArrows from './ProjectArrows';
+import ProjectBar from './ProjectBar';
 import GanttRow from './GanttRow';
 
 interface Props {
@@ -1073,33 +1074,6 @@ function GroupRows({
                 <span className="truncate">{group.label}</span>
               )}
               <span className="text-text-muted font-normal">({group.tasks.length})</span>
-              {onEditProjectDates && (
-                <span
-                  className="flex items-center gap-1 ml-1 font-normal"
-                  onClick={(e) => e.stopPropagation()}
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
-                  <input
-                    type="date"
-                    value={projectMeta.startDate || ''}
-                    onChange={(e) =>
-                      onEditProjectDates(projectMeta.id, e.target.value || null, projectMeta.targetDate)
-                    }
-                    title="Project start date"
-                    className="h-6 px-1.5 bg-bg-card border border-border-primary rounded text-[11px] text-text-secondary outline-none focus:border-accent cursor-pointer"
-                  />
-                  <span className="text-text-muted">→</span>
-                  <input
-                    type="date"
-                    value={projectMeta.targetDate || ''}
-                    onChange={(e) =>
-                      onEditProjectDates(projectMeta.id, projectMeta.startDate, e.target.value || null)
-                    }
-                    title="Project target date"
-                    className="h-6 px-1.5 bg-bg-card border border-border-primary rounded text-[11px] text-text-secondary outline-none focus:border-accent cursor-pointer"
-                  />
-                </span>
-              )}
               {onAddIssueToProject && (
                 <button
                   onClick={(e) => {
@@ -1119,14 +1093,23 @@ function GroupRows({
           </td>
           <td className="p-0 relative border-b border-border-primary bg-bg-header/30 align-middle">
             <div className="relative h-9 flex items-center" style={{ width: totalDays * dayWidth }}>
-              {geom && (
-                <div
-                  data-project-bar={projectMeta.id}
-                  className="absolute h-[16px] rounded top-1/2 -translate-y-1/2 bg-accent/70 border border-accent/80 shadow-sm"
-                  style={{ left: geom.left, width: geom.width }}
-                  title={`${projectMeta.name}${projectMeta.startDate ? ` · ${projectMeta.startDate}` : ''}${projectMeta.targetDate ? ` → ${projectMeta.targetDate}` : ''}`}
-                />
-              )}
+              {geom &&
+                (onEditProjectDates ? (
+                  <ProjectBar
+                    projectMeta={projectMeta}
+                    geom={geom}
+                    chartStart={chartStart}
+                    dayWidth={dayWidth}
+                    onEditProjectDates={onEditProjectDates}
+                  />
+                ) : (
+                  <div
+                    data-project-bar={projectMeta.id}
+                    className="absolute h-[16px] rounded top-1/2 -translate-y-1/2 bg-accent/70 border border-accent/80 shadow-sm"
+                    style={{ left: geom.left, width: geom.width }}
+                    title={`${projectMeta.name}${projectMeta.startDate ? ` · ${projectMeta.startDate}` : ''}${projectMeta.targetDate ? ` → ${projectMeta.targetDate}` : ''}`}
+                  />
+                ))}
             </div>
           </td>
         </tr>
