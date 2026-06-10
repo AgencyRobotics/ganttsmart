@@ -139,18 +139,6 @@ export function useLinearData(linearToken: string, onAuthError?: () => void) {
       ? urlInit.showCompleted
       : localStorage.getItem('gantt_show_completed_projects') !== 'false',
   );
-  // When set, the chart is in initiative (multi-project) mode.
-  const [selectedInitiativeId, setSelectedInitiativeId] = useState(
-    () => localStorage.getItem('linear_selected_initiative') || '',
-  );
-  // Projects in the active initiative that are currently shown (subset toggle).
-  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
-  // Per-project summary metadata (dates + project-to-project deps) for initiative mode.
-  const [projectMetas, setProjectMetas] = useState<ProjectMeta[]>([]);
-  // Whether completed projects (and their issues) are shown in initiative mode.
-  const [showCompletedProjects, setShowCompletedProjects] = useState(
-    () => localStorage.getItem('gantt_show_completed_projects') !== 'false',
-  );
   const [projectName, setProjectName] = useState('');
 
   // Latest initiatives, readable inside callbacks without stale closures.
