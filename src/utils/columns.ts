@@ -21,7 +21,7 @@ export const COLUMN_DEFS: ColumnDef[] = [
 export const COLUMN_KEYS: ColumnKey[] = COLUMN_DEFS.map((c) => c.key);
 
 // Columns shown by default (matches the historical layout: Priority + Due).
-export const DEFAULT_VISIBLE_COLUMNS: ColumnKey[] = ['priority', 'due'];
+export const DEFAULT_VISIBLE_COLUMNS: ColumnKey[] = ['priority', 'status', 'due'];
 
 // Widths are keyed by 'task' plus every ColumnKey.
 export type ColumnWidths = Record<string, number>;

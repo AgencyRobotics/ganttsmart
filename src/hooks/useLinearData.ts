@@ -1141,8 +1141,7 @@ export function useLinearData(linearToken: string, onAuthError?: () => void) {
 
   // When an issue is dragged so its end (due) lands past a dependent's start, slide the
   // dependents along too — preserving each dependent's duration and cascading through the
-  // chain of issues it blocks. Used by the Gantt drag/move handlers (not by programmatic
-  // reschedules like baseline revert).
+  // chain of issues it blocks. Used by the Gantt drag/move handlers.
   const rescheduleWithDependents = useCallback(
     async (taskUuid: string, newDueDate: string) => {
       // Snapshot the visible schedule *before* applying the drag.

@@ -1,13 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import type { Task } from '@/types';
-
-export interface TaskBaseline {
-  issue_id: string;
-  planned_start: string | null;
-  planned_due: string;
-  first_seen_at: string;
-}
 
 export interface ChangeEvent {
   issue_id: string;
@@ -24,138 +16,9 @@ async function getUserId(): Promise<string | null> {
 }
 
 /**
- * Manages planning history: captures baselines on first load and logs change events.
- * Baselines are the first-seen dates for each task — the "original plan".
- * Change events are logged when due dates, start dates, or statuses are modified.
+ * Logs planning change events for audit: due/start date changes and status transitions.
  */
 export function usePlanningHistory(projectId: string) {
-  const [baselines, setBaselines] = useState<Map<string, TaskBaseline>>(new Map());
-  const baselinesSynced = useRef(false);
-  const projectRef = useRef(projectId);
-
-  // Reset when project changes
-  useEffect(() => {
-    if (projectRef.current !== projectId) {
-      projectRef.current = projectId;
-      baselinesSynced.current = false;
-      setBaselines(new Map());
-    }
-  }, [projectId]);
-
-  // Load existing baselines from DB
-  const loadBaselines = useCallback(async () => {
-    if (!projectId) return;
-    const userId = await getUserId();
-    if (!userId) return;
-
-    const { data, error } = await supabase
-      .from('task_baselines')
-      .select('issue_id, planned_start, planned_due, first_seen_at')
-      .eq('user_id', userId)
-      .eq('project_id', projectId);
-
-    if (error) {
-      console.warn('Failed to load baselines:', error.message);
-      return;
-    }
-
-    const map = new Map<string, TaskBaseline>();
-    for (const row of data || []) {
-      map.set(row.issue_id, row);
-    }
-    setBaselines(map);
-    return map;
-  }, [projectId]);
-
-  // Sync baselines: for any task we haven't seen before, store its current dates as the baseline
-  const syncBaselines = useCallback(
-    async (tasks: Task[]) => {
-      if (!projectId || baselinesSynced.current) return;
-
-      const userId = await getUserId();
-      if (!userId) return;
-      baselinesSynced.current = true;
-
-      // Load current baselines first
-      let currentBaselines = baselines;
-      if (currentBaselines.size === 0) {
-        const loaded = await loadBaselines();
-        if (loaded) currentBaselines = loaded;
-      }
-
-      // Find tasks that don't have baselines yet
-      const newBaselines = tasks.filter((t) => !currentBaselines.has(t.id));
-      if (newBaselines.length === 0) return;
-
-      const rows = newBaselines.map((t) => ({
-        user_id: userId,
-        issue_id: t.id,
-        project_id: projectId,
-        planned_start: t.startDate,
-        planned_due: t.due,
-      }));
-
-      const { error } = await supabase
-        .from('task_baselines')
-        .upsert(rows, { onConflict: 'user_id,issue_id', ignoreDuplicates: true });
-
-      if (error) {
-        console.warn('Failed to save baselines:', error.message);
-        return;
-      }
-
-      // Update local state
-      const updated = new Map(currentBaselines);
-      for (const t of newBaselines) {
-        updated.set(t.id, {
-          issue_id: t.id,
-          planned_start: t.startDate,
-          planned_due: t.due,
-          first_seen_at: new Date().toISOString(),
-        });
-      }
-      setBaselines(updated);
-    },
-    [projectId, baselines, loadBaselines],
-  );
-
-  // Update (or create) a task's baseline to specific planned dates — used by "Accept changes".
-  const updateBaseline = useCallback(
-    async (issueId: string, plannedStart: string | null, plannedDue: string) => {
-      if (!projectId) return;
-      const userId = await getUserId();
-      if (!userId) return;
-
-      const { error } = await supabase.from('task_baselines').upsert(
-        {
-          user_id: userId,
-          issue_id: issueId,
-          project_id: projectId,
-          planned_start: plannedStart,
-          planned_due: plannedDue,
-        },
-        { onConflict: 'user_id,issue_id' },
-      );
-
-      if (error) {
-        console.warn('Failed to update baseline:', error.message);
-        throw new Error(error.message);
-      }
-
-      setBaselines((prev) => {
-        const next = new Map(prev);
-        next.set(issueId, {
-          issue_id: issueId,
-          planned_start: plannedStart,
-          planned_due: plannedDue,
-          first_seen_at: prev.get(issueId)?.first_seen_at || new Date().toISOString(),
-        });
-        return next;
-      });
-    },
-    [projectId],
-  );
-
   // Log a field change to issue_change_history
   const logChange = useCallback(
     async (issueId: string, field: string, oldValue: string | null, newValue: string | null) => {
@@ -226,9 +89,6 @@ export function usePlanningHistory(projectId: string) {
   );
 
   return {
-    baselines,
-    syncBaselines,
-    updateBaseline,
     logChange,
     logStatusTransition,
     getTaskHistory,

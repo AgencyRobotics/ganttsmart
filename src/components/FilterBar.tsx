@@ -31,10 +31,6 @@ interface Props {
   hideProjectSelector?: boolean;
   visibleColumns?: ColumnKey[];
   onVisibleColumnsChange?: (next: ColumnKey[]) => void;
-  driftCount?: number;
-  baselineBusy?: boolean;
-  onAcceptAll?: () => void;
-  onRevertAll?: () => void;
 }
 
 const PRIORITY_CHIPS = [
@@ -104,23 +100,6 @@ function GroupIcon() {
   );
 }
 
-function CheckIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  );
-}
-
-function UndoIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-      <polyline points="9 14 4 9 9 4" />
-      <path d="M20 20v-7a4 4 0 00-4-4H4" />
-    </svg>
-  );
-}
-
 function EyeIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
@@ -170,10 +149,6 @@ export default function FilterBar({
   hideProjectSelector,
   visibleColumns,
   onVisibleColumnsChange,
-  driftCount = 0,
-  baselineBusy,
-  onAcceptAll,
-  onRevertAll,
 }: Props) {
   const togglePriority = (val: number) => {
     const next = new Set(filters.priorities);
@@ -356,37 +331,6 @@ export default function FilterBar({
         />
 
         <div className="flex-1" />
-
-        {/* Bulk baseline actions — only when something has drifted from its baseline */}
-        {driftCount > 0 && onAcceptAll && onRevertAll && (
-          <>
-            <div className="flex items-center gap-1.5 shrink-0">
-              <span
-                className="w-2.5 h-2.5 rounded-sm border-[1.5px] border-dashed border-amber-400/70 shrink-0"
-                title={`${driftCount} task(s) drifted from baseline`}
-              />
-              <button
-                onClick={onAcceptAll}
-                disabled={baselineBusy}
-                className="h-8 px-2.5 inline-flex items-center gap-1.5 rounded-md border text-xs font-medium cursor-pointer transition-colors bg-success/10 border-success/30 text-success hover:bg-success/20 disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Accept current dates as the new baseline for all drifted tasks"
-              >
-                <CheckIcon />
-                {baselineBusy ? 'Working…' : `Accept all (${driftCount})`}
-              </button>
-              <button
-                onClick={onRevertAll}
-                disabled={baselineBusy}
-                className="h-8 px-2.5 inline-flex items-center gap-1.5 rounded-md border text-xs font-medium cursor-pointer transition-colors bg-bg-card border-border-primary text-text-secondary hover:border-border-secondary hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Revert all drifted tasks back to their baseline dates"
-              >
-                <UndoIcon />
-                Revert all
-              </button>
-            </div>
-            <div className="w-px h-5 bg-border-primary shrink-0" />
-          </>
-        )}
 
         {/* Column configuration */}
         {visibleColumns && onVisibleColumnsChange && (

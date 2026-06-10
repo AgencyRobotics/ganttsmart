@@ -1,7 +1,7 @@
-import { useCallback, useRef, useState } from 'react';
-import type { Task } from '@/types';
-import type { TaskBaseline } from '@/hooks/usePlanningHistory';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import type { Task, WorkflowState } from '@/types';
 import { MIN_COLUMN_WIDTHS, stickyLeftOffsets, type ColumnKey, type ColumnWidths } from '@/utils/columns';
+import CustomDropdown, { type DropdownOption } from './CustomDropdown';
 import { Avatar } from '@/utils/avatar';
 import { isSafeUrl } from '@/utils/url';
 import {
@@ -26,10 +26,11 @@ interface Props {
   onReschedule?: (taskUuid: string, newDueDate: string) => Promise<void>;
   onRescheduleStart?: (taskUuid: string, newStartDate: string) => Promise<void>;
   onCycleStatus?: (taskUuid: string) => Promise<void>;
+  onEditStatus?: (taskUuid: string, stateId: string) => Promise<void>;
+  workflowStatesByTeam?: Record<string, WorkflowState[]>;
   onConnectStart?: (taskId: string, e: React.MouseEvent) => void;
   isConnecting?: boolean;
   depViolation?: string[]; // list of blocker IDs whose schedule is violated
-  baseline?: TaskBaseline;
   isDone?: boolean;
 }
 
@@ -44,10 +45,11 @@ export default function GanttRow({
   onReschedule,
   onRescheduleStart,
   onCycleStatus,
+  onEditStatus,
+  workflowStatesByTeam,
   onConnectStart,
   isConnecting,
   depViolation,
-  baseline,
   isDone,
 }: Props) {
   const pCls = priorityClass(task.priorityVal);
@@ -328,30 +330,30 @@ export default function GanttRow({
 
   const progressWidth = task.totalChildren > 0 ? `${task.progress}%` : undefined;
   const statusDotColor = statusDotColors[task.statusType] || '#52525b';
+  const teamStates = workflowStatesByTeam?.[task.teamId] || [];
+  const currentStateId = teamStates.find((s) => s.name === task.status)?.id || '';
+  const statusOptions: DropdownOption[] = useMemo(
+    () =>
+      teamStates.map((s) => ({
+        value: s.id,
+        label: s.name,
+        icon: (
+          <span
+            className="w-2 h-2 rounded-full shrink-0"
+            style={{ backgroundColor: statusDotColors[s.type] || '#52525b' }}
+          />
+        ),
+      })),
+    [teamStates],
+  );
+  const canEditStatus = !!onEditStatus && statusOptions.length > 0;
+  const statusDot = (
+    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: statusDotColor }} />
+  );
 
   // Freeze the fixed columns so they stay put while the timeline scrolls horizontally.
   const sticky = stickyLeftOffsets(colWidths, visibleColumns);
   const stickyCellCls = 'sticky z-[20] bg-bg-primary group-hover:bg-accent/[0.03]';
-
-  // Ghost bar for baseline (planned vs actual) — only show when dates have drifted
-  const baselineBar = (() => {
-    if (!baseline || isDone) return null;
-    const baseStart = baseline.planned_start ? new Date(baseline.planned_start + 'T00:00:00') : null;
-    const baseDue = new Date(baseline.planned_due + 'T00:00:00');
-    const actualStart = taskStartDate;
-    const actualDue = dueDate;
-    // Check if dates have changed
-    const startChanged = (baseStart?.getTime() ?? null) !== (actualStart?.getTime() ?? null);
-    const dueChanged = baseDue.getTime() !== actualDue.getTime();
-    if (!startChanged && !dueChanged) return null;
-    // Compute ghost bar position
-    const ghostStartDate = baseStart || chartStart;
-    const ghostLeft = daysBetween(chartStart, ghostStartDate) * dayWidth;
-    const ghostEndDay = daysBetween(chartStart, baseDue);
-    const ghostStartDay = daysBetween(chartStart, ghostStartDate);
-    const ghostWidth = Math.max((ghostEndDay - ghostStartDay + 1) * dayWidth, dayWidth);
-    return { left: ghostLeft, width: ghostWidth };
-  })();
 
   return (
     <tr
@@ -431,17 +433,21 @@ export default function GanttRow({
                   {task.completedChildren}/{task.totalChildren}
                 </span>
               )}
-              {/* Status dot — clickable to cycle */}
-              {onCycleStatus && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onCycleStatus(task.uuid);
-                  }}
-                  className="w-2 h-2 rounded-full shrink-0 hover:scale-125 transition-transform cursor-pointer ml-auto"
-                  style={{ backgroundColor: statusDotColor }}
-                  title={`${task.status} — click to cycle`}
-                />
+              {/* Status — pick any workflow state for this team */}
+              {canEditStatus ? (
+                <div className="ml-auto shrink-0 min-w-0 max-w-[120px]" onClick={(e) => e.stopPropagation()}>
+                  <CustomDropdown
+                    value={currentStateId}
+                    options={statusOptions}
+                    placeholder={task.status}
+                    placeholderIcon={statusDot}
+                    onChange={(stateId) => onEditStatus!(task.uuid, stateId)}
+                    required
+                    title={`Change status (${task.status})`}
+                  />
+                </div>
+              ) : (
+                statusDot
               )}
             </div>
             <div
@@ -490,13 +496,26 @@ export default function GanttRow({
               key="status"
               className={`h-[56px] px-3 border-b border-r border-border-primary align-middle ${stickyCellCls}`}
               style={{ width: colWidths.status, minWidth: MIN_COLUMN_WIDTHS.status, left: sticky.cols.status }}
+              onClick={(e) => e.stopPropagation()}
             >
-              <span className="inline-flex items-center gap-1.5 text-[11.5px] text-text-secondary min-w-0">
-                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: statusDotColor }} />
-                <span className="truncate" title={task.status}>
-                  {task.status}
+              {canEditStatus ? (
+                <CustomDropdown
+                  value={currentStateId}
+                  options={statusOptions}
+                  placeholder={task.status}
+                  placeholderIcon={statusDot}
+                  onChange={(stateId) => onEditStatus!(task.uuid, stateId)}
+                  required
+                  title={`Change status (${task.status})`}
+                />
+              ) : (
+                <span className="inline-flex items-center gap-1.5 text-[11.5px] text-text-secondary min-w-0">
+                  {statusDot}
+                  <span className="truncate" title={task.status}>
+                    {task.status}
+                  </span>
                 </span>
-              </span>
+              )}
             </td>
           );
         }
@@ -576,19 +595,6 @@ export default function GanttRow({
               />
             ))}
           </div>
-
-          {/* Ghost bar — baseline (original plan) overlay, rendered above main bar */}
-          {baselineBar && (
-            <div
-              className="absolute h-[28px] rounded-md top-1/2 -translate-y-1/2 z-[3] border-2 border-dashed border-amber-400/60 pointer-events-none"
-              style={{
-                left: baselineBar.left,
-                width: baselineBar.width,
-                background: 'rgba(251, 191, 36, 0.08)',
-              }}
-              title={`Originally planned: ${baseline?.planned_start || '(no start)'} → ${baseline?.planned_due}`}
-            />
-          )}
 
           {/* Bar wrapper — groups bar + connector dot for shared hover state */}
           <div className="group/bar absolute top-0 h-full" style={{ left: displayBarLeft, width: displayBarWidth + 20 }}>
