@@ -80,6 +80,7 @@ function GanttView({
     workflowStatesByTeam,
     users,
     teams,
+    loadWorkflowStates,
   } = useLinearData(linearToken, onDisconnectLinear);
 
   // Planning history: log change events for audit
@@ -283,7 +284,10 @@ function GanttView({
         onClose={() => setNewIssueTarget(null)}
         onCreate={createIssueInProject}
       />
-      <DetailPanel />
+      <DetailPanel
+        workflowStatesByTeam={workflowStatesByTeam}
+        onLoadWorkflowStates={loadWorkflowStates}
+      />
       <ToastContainer />
     </div>
   );

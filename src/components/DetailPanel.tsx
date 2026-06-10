@@ -54,7 +54,15 @@ export function setCreateDependentIssueHandler(handler: CreateDependentIssueHand
   globalCreateDependentIssue = handler;
 }
 
-export default function DetailPanel() {
+interface DetailPanelProps {
+  workflowStatesByTeam?: Record<string, WorkflowState[]>;
+  onLoadWorkflowStates?: (teamIds: string[]) => Promise<void>;
+}
+
+export default function DetailPanel({
+  workflowStatesByTeam = {},
+  onLoadWorkflowStates,
+}: DetailPanelProps) {
   const [task, setTask] = useState<Task | null>(null);
   const [visible, setVisible] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -88,6 +96,13 @@ export default function DetailPanel() {
     setEditingTitle(false);
     setEditingDesc(false);
   }, [task?.uuid]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Workflow states load asynchronously; fetch them when a panel opens without cached states.
+  useEffect(() => {
+    if (!task?.teamId || !onLoadWorkflowStates) return;
+    if ((workflowStatesByTeam[task.teamId] || []).length > 0) return;
+    onLoadWorkflowStates([task.teamId]);
+  }, [task?.teamId, task?.uuid, workflowStatesByTeam, onLoadWorkflowStates]);
 
   // Update the locally displayed task snapshot (keeps the panel in sync after an edit)
   const patchLocalTask = (patch: Partial<Task>) => setTask((t) => (t ? { ...t, ...patch } : t));
@@ -196,7 +211,7 @@ export default function DetailPanel() {
     icon: priorityDot(priorityColors[PRIORITY_MAP[val]] || '#52525b'),
   }));
 
-  const teamStates = ctx?.workflowStatesByTeam[task.teamId] || [];
+  const teamStates = workflowStatesByTeam[task.teamId] || ctx?.workflowStatesByTeam[task.teamId] || [];
   const statusOptions: DropdownOption[] = teamStates.map((s) => ({
     value: s.id,
     label: s.name,
@@ -382,6 +397,9 @@ export default function DetailPanel() {
                     value={currentStateId}
                     options={statusOptions}
                     placeholder="Status"
+                    placeholderIcon={
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: statusDotColor }} />
+                    }
                     onChange={handleStatusChange}
                     required
                     className="max-w-[200px]"

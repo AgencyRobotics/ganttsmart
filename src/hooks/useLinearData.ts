@@ -1563,5 +1563,6 @@ export function useLinearData(linearToken: string, onAuthError?: () => void) {
     users,
     teams,
     undo,
+    loadWorkflowStates: ensureWorkflowStates,
   };
 }
