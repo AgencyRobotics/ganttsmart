@@ -486,6 +486,89 @@ export default function DetailPanel() {
                 )}
               </div>
             </div>
+
+            {/* Baseline drift */}
+            {(() => {
+              const bl = globalBaselines.get(task.id);
+              if (!bl) return null;
+              const actualDue = new Date(task.due + 'T00:00:00');
+              const plannedDue = new Date(bl.planned_due + 'T00:00:00');
+              const dueDrift = Math.round((actualDue.getTime() - plannedDue.getTime()) / 86400000);
+              const actualStart = task.startDate ? new Date(task.startDate + 'T00:00:00') : null;
+              const plannedStart = bl.planned_start ? new Date(bl.planned_start + 'T00:00:00') : null;
+              const startDrift = actualStart && plannedStart
+                ? Math.round((actualStart.getTime() - plannedStart.getTime()) / 86400000)
+                : null;
+              if (dueDrift === 0 && (startDrift === null || startDrift === 0)) return null;
+              return (
+                <div className="mt-3 p-2.5 rounded-lg bg-bg-primary border border-border-primary">
+                  <div className="text-[10px] font-medium text-text-muted mb-1.5">Baseline Drift</div>
+                  {startDrift !== null && startDrift !== 0 && (
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-text-muted">Start</span>
+                      <span style={{ color: startDrift > 0 ? 'var(--color-high)' : 'var(--color-accent)' }}>
+                        {formatDateShort(bl.planned_start!)} → {formatDateShort(task.startDate!)}
+                        <span className="ml-1 font-semibold">({startDrift > 0 ? '+' : ''}{startDrift}d)</span>
+                      </span>
+                    </div>
+                  )}
+                  {dueDrift !== 0 && (
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-text-muted">Due</span>
+                      <span style={{ color: dueDrift > 0 ? 'var(--color-high)' : 'var(--color-accent)' }}>
+                        {formatDateShort(bl.planned_due)} → {formatDateShort(task.due)}
+                        <span className="ml-1 font-semibold">({dueDrift > 0 ? '+' : ''}{dueDrift}d)</span>
+                      </span>
+                    </div>
+                  )}
+                  {canEdit && (
+                    <div className="flex gap-2 mt-2.5">
+                      <button
+                        disabled={baselineBusy}
+                        onClick={async () => {
+                          if (!ctx) return;
+                          setBaselineBusy(true);
+                          try {
+                            await ctx.acceptBaseline(task);
+                            closeDetailPanel();
+                          } catch {
+                            setBaselineBusy(false);
+                          }
+                        }}
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-md bg-success/15 text-success border border-success/25 hover:bg-success/25 transition-colors cursor-pointer disabled:opacity-50"
+                        title="Make the current dates the new baseline"
+                      >
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                        Accept
+                      </button>
+                      <button
+                        disabled={baselineBusy}
+                        onClick={async () => {
+                          if (!ctx) return;
+                          setBaselineBusy(true);
+                          try {
+                            await ctx.revertBaseline(task);
+                            closeDetailPanel();
+                          } catch {
+                            setBaselineBusy(false);
+                          }
+                        }}
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-md bg-bg-hover text-text-secondary border border-border-secondary hover:bg-bg-card transition-colors cursor-pointer disabled:opacity-50"
+                        title="Restore the issue's dates to the baseline"
+                      >
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="9 14 4 9 9 4" />
+                          <path d="M20 20v-7a4 4 0 00-4-4H4" />
+                        </svg>
+                        Revert
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Progress */}
