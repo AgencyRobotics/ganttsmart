@@ -101,4 +101,6 @@ docker run -d \\
 docker image prune -f
 REMOTE
 
+DEPLOY_FINISHED_AT="$(date '+%Y-%m-%d %H:%M:%S %Z')"
 echo "==> Done. App container is on :8080 (host nginx should proxy https://gantt.agencyrobotics.com)."
+echo "    Deployment finished at: ${DEPLOY_FINISHED_AT}"

@@ -268,8 +268,6 @@ function GanttView({
           onReschedule={rescheduleWithHistory}
           onRescheduleStart={rescheduleStartWithHistory}
           onCycleStatus={cycleStatusWithHistory}
-          onEditStatus={editStatusWithHistory}
-          workflowStatesByTeam={workflowStatesByTeam}
           onCreateRelation={createRelation}
           onAddIssueToProject={selectedInitiativeId ? handleAddIssueToProject : undefined}
           onEditProjectDates={selectedInitiativeId ? editProjectDates : undefined}

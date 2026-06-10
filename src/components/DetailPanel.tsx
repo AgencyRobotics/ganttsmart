@@ -217,7 +217,7 @@ export default function DetailPanel({
     label: s.name,
     icon: priorityDot(statusDotColors[s.type] || '#52525b'),
   }));
-  const currentStateId = teamStates.find((s) => s.name === task.status)?.id || '';
+  const currentStateId = task.stateId || teamStates.find((s) => s.name === task.status)?.id || '';
 
   const assigneeOptions: DropdownOption[] = (ctx?.users || []).map((u) => ({
     value: u.id,
@@ -228,7 +228,7 @@ export default function DetailPanel({
   const handleStatusChange = (stateId: string) => {
     const state = teamStates.find((s) => s.id === stateId);
     if (!ctx || !state) return;
-    patchLocalTask({ status: state.name, statusType: state.type });
+    patchLocalTask({ status: state.name, statusType: state.type, stateId: state.id });
     ctx.editStatus(task.uuid, stateId);
   };
 
@@ -404,6 +404,17 @@ export default function DetailPanel({
                     required
                     className="max-w-[200px]"
                   />
+                ) : canEdit && task.teamId ? (
+                  <button
+                    type="button"
+                    onClick={() => onLoadWorkflowStates?.([task.teamId])}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-text-secondary px-2 py-1 rounded-md border border-border-secondary hover:border-accent hover:text-accent cursor-pointer"
+                    title="Workflow states failed to load — click to retry"
+                  >
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: statusDotColor }} />
+                    {task.status}
+                    <span className="text-[10px] text-text-muted">(retry)</span>
+                  </button>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 text-xs font-medium text-text-primary">
                     <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: statusDotColor }} />

@@ -296,17 +296,11 @@ export function useLinearData(linearToken: string, onAuthError?: () => void) {
     async (teamIds: Array<string | undefined>) => {
       if (!linearToken) return;
       const unique = [...new Set(teamIds.filter((id): id is string => !!id))].filter(
-        (id) => !workflowStatesByTeamRef.current[id],
+        (id) => (workflowStatesByTeamRef.current[id]?.length ?? 0) === 0,
       );
       if (unique.length === 0) return;
       const fetched = await Promise.all(
-        unique.map(async (id) => {
-          try {
-            return [id, await fetchWorkflowStates(linearToken, id)] as const;
-          } catch {
-            return [id, [] as WorkflowState[]] as const;
-          }
-        }),
+        unique.map(async (id) => [id, await fetchWorkflowStates(linearToken, id)] as const),
       );
       const next = { ...workflowStatesByTeamRef.current };
       for (const [id, states] of fetched) next[id] = states;
@@ -865,7 +859,11 @@ export function useLinearData(linearToken: string, onAuthError?: () => void) {
       const prevTasks = tasks;
       const prevState = teamStates.find((s) => s.name === task.status);
       setTasks((prev) =>
-        prev.map((t) => (t.uuid === taskUuid ? { ...t, status: nextState.name, statusType: nextState.type } : t)),
+        prev.map((t) =>
+          t.uuid === taskUuid
+            ? { ...t, status: nextState.name, statusType: nextState.type, stateId: nextState.id }
+            : t,
+        ),
       );
 
       pendingMutations.current++;
@@ -1069,7 +1067,7 @@ export function useLinearData(linearToken: string, onAuthError?: () => void) {
       }
       await runFieldEdit(
         taskUuid,
-        { status: state.name, statusType: state.type },
+        { status: state.name, statusType: state.type, stateId: state.id },
         () => updateIssueState(linearToken, taskUuid, stateId),
         'status',
       );
@@ -1387,9 +1385,16 @@ export function useLinearData(linearToken: string, onAuthError?: () => void) {
           .then(setUsers)
           .catch((e) => toastError(`Failed to load workspace members: ${(e as Error).message}`));
 
-        // Teams for the create-issue team picker (also non-blocking).
+        // Teams for the create-issue team picker; preload workflow states for every team.
         fetchTeams(linearToken)
-          .then(setTeams)
+          .then(async (teams) => {
+            setTeams(teams);
+            try {
+              await ensureWorkflowStates(teams.map((t) => t.id));
+            } catch (e) {
+              toastError(`Failed to load workflow states: ${(e as Error).message}`);
+            }
+          })
           .catch((e) => toastError(`Failed to load teams: ${(e as Error).message}`));
 
         // Initiatives (awaited so we can restore initiative scope on startup).

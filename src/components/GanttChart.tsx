@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import type {GroupBy, Milestone, ProjectMeta, Task, WorkflowState} from '@/types';
+import type {GroupBy, Milestone, ProjectMeta, Task} from '@/types';
 import {Avatar} from '@/utils/avatar';
 import {daysBetween, isWeekend} from '@/utils/date';
 import {
@@ -31,8 +31,6 @@ interface Props {
   onReschedule?: (taskUuid: string, newDueDate: string) => Promise<void>;
   onRescheduleStart?: (taskUuid: string, newStartDate: string) => Promise<void>;
   onCycleStatus?: (taskUuid: string) => Promise<void>;
-  onEditStatus?: (taskUuid: string, stateId: string) => Promise<void>;
-  workflowStatesByTeam?: Record<string, WorkflowState[]>;
   onCreateRelation?: (sourceTaskId: string, targetTaskId: string) => Promise<void>;
   /** Initiative mode: add a new issue to a specific project (from the project header "+"). */
   onAddIssueToProject?: (projectId: string, projectName: string) => void;
@@ -147,8 +145,6 @@ export default function GanttChart({
                                      onReschedule,
                                      onRescheduleStart,
                                      onCycleStatus,
-                                     onEditStatus,
-                                     workflowStatesByTeam,
                                      onCreateRelation,
                                      onAddIssueToProject,
                                      onEditProjectDates,
@@ -733,8 +729,6 @@ export default function GanttChart({
                   onReschedule={onReschedule}
                   onRescheduleStart={onRescheduleStart}
                   onCycleStatus={onCycleStatus}
-                  onEditStatus={onEditStatus}
-                  workflowStatesByTeam={workflowStatesByTeam}
                   onConnectStart={onCreateRelation ? handleConnectStart : undefined}
                   isConnecting={isConnecting}
                   depViolations={depViolations}
@@ -760,8 +754,6 @@ export default function GanttChart({
                   onReschedule={onReschedule}
                   onRescheduleStart={onRescheduleStart}
                   onCycleStatus={onCycleStatus}
-                  onEditStatus={onEditStatus}
-                  workflowStatesByTeam={workflowStatesByTeam}
                   onConnectStart={onCreateRelation ? handleConnectStart : undefined}
                   isConnecting={isConnecting}
                   depViolations={depViolations}
@@ -842,8 +834,6 @@ export default function GanttChart({
                   dayWidth={dayWidth}
                   colWidths={colWidths}
                   visibleColumns={visibleColumns}
-                  onEditStatus={onEditStatus}
-                  workflowStatesByTeam={workflowStatesByTeam}
                   isDone
                 />
               ))}
@@ -1010,8 +1000,6 @@ function GroupRows({
                      onReschedule,
                      onRescheduleStart,
                      onCycleStatus,
-                     onEditStatus,
-                     workflowStatesByTeam,
                      onConnectStart,
                      isConnecting,
                      depViolations,
@@ -1036,8 +1024,6 @@ function GroupRows({
   onReschedule?: (taskUuid: string, newDueDate: string) => Promise<void>;
   onRescheduleStart?: (taskUuid: string, newStartDate: string) => Promise<void>;
   onCycleStatus?: (taskUuid: string) => Promise<void>;
-  onEditStatus?: (taskUuid: string, stateId: string) => Promise<void>;
-  workflowStatesByTeam?: Record<string, WorkflowState[]>;
   onConnectStart?: (taskId: string, e: React.MouseEvent) => void;
   isConnecting?: boolean;
   depViolations?: Map<string, string[]>;
@@ -1149,8 +1135,6 @@ function GroupRows({
               onReschedule={onReschedule}
               onRescheduleStart={onRescheduleStart}
               onCycleStatus={onCycleStatus}
-              onEditStatus={onEditStatus}
-              workflowStatesByTeam={workflowStatesByTeam}
               onConnectStart={onConnectStart}
               isConnecting={isConnecting}
               depViolation={depViolations?.get(task.id)}
@@ -1191,8 +1175,6 @@ function GroupRows({
             onReschedule={onReschedule}
             onRescheduleStart={onRescheduleStart}
             onCycleStatus={onCycleStatus}
-            onEditStatus={onEditStatus}
-            workflowStatesByTeam={workflowStatesByTeam}
             onConnectStart={onConnectStart}
             isConnecting={isConnecting}
             depViolation={depViolations?.get(task.id)}

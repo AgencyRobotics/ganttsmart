@@ -1,7 +1,6 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
-import type { Task, WorkflowState } from '@/types';
+import { useCallback, useRef, useState } from 'react';
+import type { Task } from '@/types';
 import { MIN_COLUMN_WIDTHS, stickyLeftOffsets, type ColumnKey, type ColumnWidths } from '@/utils/columns';
-import CustomDropdown, { type DropdownOption } from './CustomDropdown';
 import { Avatar } from '@/utils/avatar';
 import { isSafeUrl } from '@/utils/url';
 import {
@@ -26,8 +25,6 @@ interface Props {
   onReschedule?: (taskUuid: string, newDueDate: string) => Promise<void>;
   onRescheduleStart?: (taskUuid: string, newStartDate: string) => Promise<void>;
   onCycleStatus?: (taskUuid: string) => Promise<void>;
-  onEditStatus?: (taskUuid: string, stateId: string) => Promise<void>;
-  workflowStatesByTeam?: Record<string, WorkflowState[]>;
   onConnectStart?: (taskId: string, e: React.MouseEvent) => void;
   isConnecting?: boolean;
   depViolation?: string[]; // list of blocker IDs whose schedule is violated
@@ -45,8 +42,6 @@ export default function GanttRow({
   onReschedule,
   onRescheduleStart,
   onCycleStatus,
-  onEditStatus,
-  workflowStatesByTeam,
   onConnectStart,
   isConnecting,
   depViolation,
@@ -330,26 +325,6 @@ export default function GanttRow({
 
   const progressWidth = task.totalChildren > 0 ? `${task.progress}%` : undefined;
   const statusDotColor = statusDotColors[task.statusType] || '#52525b';
-  const teamStates = workflowStatesByTeam?.[task.teamId] || [];
-  const currentStateId = teamStates.find((s) => s.name === task.status)?.id || '';
-  const statusOptions: DropdownOption[] = useMemo(
-    () =>
-      teamStates.map((s) => ({
-        value: s.id,
-        label: s.name,
-        icon: (
-          <span
-            className="w-2 h-2 rounded-full shrink-0"
-            style={{ backgroundColor: statusDotColors[s.type] || '#52525b' }}
-          />
-        ),
-      })),
-    [teamStates],
-  );
-  const canEditStatus = !!onEditStatus && statusOptions.length > 0;
-  const statusDot = (
-    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: statusDotColor }} />
-  );
 
   // Freeze the fixed columns so they stay put while the timeline scrolls horizontally.
   const sticky = stickyLeftOffsets(colWidths, visibleColumns);
@@ -433,22 +408,11 @@ export default function GanttRow({
                   {task.completedChildren}/{task.totalChildren}
                 </span>
               )}
-              {/* Status — pick any workflow state for this team */}
-              {canEditStatus ? (
-                <div className="ml-auto shrink-0 min-w-0 max-w-[120px]" onClick={(e) => e.stopPropagation()}>
-                  <CustomDropdown
-                    value={currentStateId}
-                    options={statusOptions}
-                    placeholder={task.status}
-                    placeholderIcon={statusDot}
-                    onChange={(stateId) => onEditStatus!(task.uuid, stateId)}
-                    required
-                    title={`Change status (${task.status})`}
-                  />
-                </div>
-              ) : (
-                statusDot
-              )}
+              <span
+                className="w-2 h-2 rounded-full shrink-0 ml-auto"
+                style={{ backgroundColor: statusDotColor }}
+                title={task.status}
+              />
             </div>
             <div
               className={`text-[13px] font-medium text-text-primary leading-snug truncate cursor-pointer hover:text-accent transition-colors ${isDone ? 'line-through opacity-70' : ''}`}
@@ -496,26 +460,13 @@ export default function GanttRow({
               key="status"
               className={`h-[56px] px-3 border-b border-r border-border-primary align-middle ${stickyCellCls}`}
               style={{ width: colWidths.status, minWidth: MIN_COLUMN_WIDTHS.status, left: sticky.cols.status }}
-              onClick={(e) => e.stopPropagation()}
             >
-              {canEditStatus ? (
-                <CustomDropdown
-                  value={currentStateId}
-                  options={statusOptions}
-                  placeholder={task.status}
-                  placeholderIcon={statusDot}
-                  onChange={(stateId) => onEditStatus!(task.uuid, stateId)}
-                  required
-                  title={`Change status (${task.status})`}
-                />
-              ) : (
-                <span className="inline-flex items-center gap-1.5 text-[11.5px] text-text-secondary min-w-0">
-                  {statusDot}
-                  <span className="truncate" title={task.status}>
-                    {task.status}
-                  </span>
+              <span className="inline-flex items-center gap-1.5 text-[11.5px] text-text-secondary min-w-0">
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: statusDotColor }} />
+                <span className="truncate" title={task.status}>
+                  {task.status}
                 </span>
-              )}
+              </span>
             </td>
           );
         }

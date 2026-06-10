@@ -9,6 +9,7 @@ export interface Task {
   priority: string;
   status: string;
   statusType: string;
+  stateId?: string; // Linear workflow state UUID (for status editing)
   assignee: string;
   assigneeId?: string; // Linear user UUID (for editing assignee)
   url: string; // direct Linear URL

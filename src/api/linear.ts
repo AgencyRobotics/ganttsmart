@@ -291,7 +291,7 @@ export async function fetchIssues(
     dueDate
     url
     priority
-    state { name type }
+    state { id name type }
     createdAt
     completedAt
     updatedAt
@@ -335,7 +335,7 @@ export async function fetchIssues(
     dueDate: string | null;
     url: string;
     priority: number;
-    state: { name: string; type: string } | null;
+    state: { id: string; name: string; type: string } | null;
     createdAt: string;
     completedAt: string | null;
     updatedAt?: string | null;
@@ -461,6 +461,7 @@ export async function fetchIssues(
       priority: PRIORITY_MAP[n.priority] || 'None',
       status: n.state?.name || '',
       statusType: n.state?.type || '',
+      stateId: n.state?.id,
       assignee: n.assignee?.name || 'Unassigned',
       assigneeId: n.assignee?.id,
       teamId: n.team?.id || '',
@@ -609,7 +610,7 @@ export async function fetchIssuesByIds(
           dueDate
           url
           priority
-          state { name type }
+          state { id name type }
           createdAt
           completedAt
           updatedAt
@@ -632,7 +633,7 @@ export async function fetchIssuesByIds(
     dueDate: string | null;
     url: string;
     priority: number;
-    state: { name: string; type: string } | null;
+    state: { id: string; name: string; type: string } | null;
     createdAt: string;
     completedAt: string | null;
     updatedAt: string | null;
@@ -683,6 +684,7 @@ export async function fetchIssuesByIds(
       priority: PRIORITY_MAP[n.priority] || 'None',
       status: n.state?.name || '',
       statusType: n.state?.type || '',
+      stateId: n.state?.id,
       assignee: n.assignee?.name || 'Unassigned',
       assigneeId: n.assignee?.id,
       teamId: n.team?.id || '',
@@ -964,17 +966,22 @@ export async function fetchWorkflowStates(apiKey: string, teamId: string): Promi
   const data = await gql(
     apiKey,
     `query($teamId: String!) {
-      workflowStates(filter: { team: { id: { eq: $teamId } } }) {
-        nodes {
-          id
-          name
-          type
-          position
+      team(id: $teamId) {
+        states {
+          nodes {
+            id
+            name
+            type
+            position
+          }
         }
       }
     }`,
     { teamId },
   );
-  const states = data.workflowStates as { nodes: WorkflowState[] };
-  return states.nodes.sort((a, b) => a.position - b.position);
+  const team = data.team as { states: { nodes: WorkflowState[] } } | null;
+  if (!team?.states?.nodes?.length) {
+    throw new Error(`No workflow states returned for team ${teamId}`);
+  }
+  return team.states.nodes.sort((a, b) => a.position - b.position);
 }
