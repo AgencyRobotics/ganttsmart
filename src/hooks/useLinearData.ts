@@ -234,7 +234,10 @@ export function useLinearData(linearToken: string, onAuthError?: () => void) {
   const filteredTasks = useMemo(() => {
     // In initiative mode, only show issues from the projects the user has toggled on.
     const visibleProjects = selectedInitiativeId ? new Set(selectedProjectIds) : null;
-    return scheduledTasks.filter((t) => {
+    // Completed issues live on the board alongside everything else; cancelled
+    // issues are hidden entirely.
+    return [...scheduledTasks, ...doneTasks].filter((t) => {
+      if (t.statusType === 'canceled') return false;
       if (visibleProjects && t.projectId && !visibleProjects.has(t.projectId)) return false;
       if (hiddenCompletedProjectIds && t.projectId && hiddenCompletedProjectIds.has(t.projectId)) return false;
       if (!filters.priorities.has(t.priorityVal)) return false;
@@ -246,7 +249,7 @@ export function useLinearData(linearToken: string, onAuthError?: () => void) {
       }
       return true;
     });
-  }, [scheduledTasks, filters, selectedInitiativeId, selectedProjectIds, hiddenCompletedProjectIds]);
+  }, [scheduledTasks, doneTasks, filters, selectedInitiativeId, selectedProjectIds, hiddenCompletedProjectIds]);
 
   // Project summary bars to render in initiative mode, limited to the toggled-on projects
   // (and excluding completed projects when the completed toggle is off).

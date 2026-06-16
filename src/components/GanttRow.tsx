@@ -4,14 +4,14 @@ import { MIN_COLUMN_WIDTHS, stickyLeftOffsets, type ColumnKey, type ColumnWidths
 import { Avatar } from '@/utils/avatar';
 import { isSafeUrl } from '@/utils/url';
 import {
-  barGradients,
-  barShadows,
   idColors,
   priorityBadgeClasses,
   priorityClass,
-  statusDotColors,
+  statusBarGradients,
+  statusBarShadows,
 } from '@/utils/colors';
 import { daysBetween, formatDate, isWeekend } from '@/utils/date';
+import StatusIcon, { resolveStatusIconKind } from './StatusIcon';
 import { openDetailPanel } from './DetailPanel';
 
 interface Props {
@@ -45,9 +45,14 @@ export default function GanttRow({
   onConnectStart,
   isConnecting,
   depViolation,
-  isDone,
+  isDone: isDoneProp,
 }: Props) {
   const pCls = priorityClass(task.priorityVal);
+  // Completed issues render with the "done" treatment wherever they appear —
+  // both in the dedicated completed section and inline on the board.
+  const isDone = isDoneProp || task.statusType === 'completed';
+  // Bars are tinted by workflow state, using the same kind the status icon resolves.
+  const sKey = resolveStatusIconKind(task.statusType, task.status);
   const dueDate = new Date(task.due + 'T00:00:00');
   const daysLeft = daysBetween(today, dueDate);
   const overdue = daysLeft < 0;
@@ -324,7 +329,6 @@ export default function GanttRow({
   }
 
   const progressWidth = task.totalChildren > 0 ? `${task.progress}%` : undefined;
-  const statusDotColor = statusDotColors[task.statusType] || '#52525b';
 
   // Freeze the fixed columns so they stay put while the timeline scrolls horizontally.
   const sticky = stickyLeftOffsets(colWidths, visibleColumns);
@@ -408,11 +412,6 @@ export default function GanttRow({
                   {task.completedChildren}/{task.totalChildren}
                 </span>
               )}
-              <span
-                className="w-2 h-2 rounded-full shrink-0 ml-auto"
-                style={{ backgroundColor: statusDotColor }}
-                title={task.status}
-              />
             </div>
             <div
               className={`text-[13px] font-medium text-text-primary leading-snug truncate cursor-pointer hover:text-accent transition-colors ${isDone ? 'line-through opacity-70' : ''}`}
@@ -425,6 +424,14 @@ export default function GanttRow({
             >
               {task.title}
             </div>
+            {!visibleColumns.includes('status') && (
+              <div className="flex items-center gap-1 mt-0.5 min-w-0">
+                <StatusIcon statusType={task.statusType} statusName={task.status} size={12} title={task.status} />
+                <span className="text-[10px] text-text-muted truncate" title={task.status}>
+                  {task.status}
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </td>
@@ -462,7 +469,7 @@ export default function GanttRow({
               style={{ width: colWidths.status, minWidth: MIN_COLUMN_WIDTHS.status, left: sticky.cols.status }}
             >
               <span className="inline-flex items-center gap-1.5 text-[11.5px] text-text-secondary min-w-0">
-                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: statusDotColor }} />
+                <StatusIcon statusType={task.statusType} statusName={task.status} size={14} title={task.status} />
                 <span className="truncate" title={task.status}>
                   {task.status}
                 </span>
@@ -552,20 +559,20 @@ export default function GanttRow({
           {/* Main bar */}
           <div
             data-task-bar={task.id}
-            className={`gantt-bar absolute h-[28px] rounded-md top-1/2 -translate-y-1/2 flex items-center ${barIsNarrow ? 'justify-center' : 'justify-start pl-2.5'} text-[10.5px] font-bold text-white/95 z-[2] min-w-[20px] transition-[filter,box-shadow] duration-150 hover:brightness-115 ${isDone ? 'bar-done' : overdue ? 'bar-overdue animate-pulse-bar' : `bar-${pCls}`} ${isAnyDrag ? '!transition-none opacity-80' : ''} ${isConnecting ? 'ring-2 ring-accent/40 ring-offset-1 ring-offset-transparent' : ''} ${task.isDueImplicit ? 'opacity-75' : ''} ${onReschedule || onRescheduleStart ? (isMoving ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-pointer'}`}
+            className={`gantt-bar absolute h-[28px] rounded-md top-1/2 -translate-y-1/2 flex items-center gap-1.5 ${barIsNarrow ? 'justify-center' : 'justify-start pl-2'} text-[10.5px] font-bold text-white/95 z-[2] min-w-[20px] transition-[filter,box-shadow] duration-150 hover:brightness-115 ${isDone ? 'bar-done' : overdue ? 'bar-overdue animate-pulse-bar' : `bar-${sKey}`} ${isAnyDrag ? '!transition-none opacity-80' : ''} ${isConnecting ? 'ring-2 ring-accent/40 ring-offset-1 ring-offset-transparent' : ''} ${task.isDueImplicit ? 'opacity-75' : ''} ${onReschedule || onRescheduleStart ? (isMoving ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-pointer'}`}
             style={{
               left: 0,
               width: displayBarWidth,
               background: isDone
-                ? 'linear-gradient(135deg, #15803d, #22c55e)'
+                ? statusBarGradients.done
                 : overdue
                   ? 'linear-gradient(135deg, #b91c1c, #ef4444)'
-                  : barGradients[pCls],
+                  : statusBarGradients[sKey],
               boxShadow: isDone
-                ? '0 2px 8px rgba(34,197,94,0.3)'
+                ? statusBarShadows.done
                 : overdue
                   ? '0 2px 12px rgba(239,68,68,0.4)'
-                  : barShadows[pCls],
+                  : statusBarShadows[sKey],
               overflow: 'hidden',
               outline: task.isDueImplicit ? '1.5px dashed rgba(255,255,255,0.45)' : undefined,
               outlineOffset: task.isDueImplicit ? '-3px' : undefined,
@@ -591,16 +598,25 @@ export default function GanttRow({
             )}
             {/* Label inside bar — ticket name (truncated) at rest, drag feedback when dragging */}
             {!barIsNarrow && (
-              <span
-                className="relative z-[1] whitespace-nowrap tracking-[0.01em]"
-                style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}
-              >
-                {isAnyDrag
-                  ? barLabel
-                  : task.title.length > 30
-                    ? `${task.title.slice(0, 30)}…`
-                    : task.title}
-              </span>
+              <>
+                {!isAnyDrag && (
+                  <StatusIcon
+                    statusType={task.statusType}
+                    statusName={task.status}
+                    size={12}
+                    variant="onBar"
+                    className="relative z-[1] shrink-0"
+                  />
+                )}
+                <span
+                  className="relative z-[1] whitespace-nowrap tracking-[0.01em] truncate min-w-0"
+                  style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}
+                >
+                  {/* `truncate` adds an ellipsis only when the title overflows the
+                      bar; a bar wide enough for the full title shows it in full. */}
+                  {isAnyDrag ? barLabel : task.title}
+                </span>
+              </>
             )}
 
             {onReschedule && (

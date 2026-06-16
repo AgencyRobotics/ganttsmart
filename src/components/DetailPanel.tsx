@@ -3,10 +3,11 @@ import type { Task, Team, User, WorkflowState } from '@/types';
 import { PRIORITY_MAP } from '@/types';
 import { Avatar } from '@/utils/avatar';
 import { isSafeUrl } from '@/utils/url';
-import { priorityColors, statusDotColors } from '@/utils/colors';
+import { priorityColors } from '@/utils/colors';
 import { formatDateShort } from '@/utils/date';
 import { extractStartTag } from '@/utils/description';
 import CustomDropdown, { type DropdownOption } from './CustomDropdown';
+import StatusIcon from './StatusIcon';
 
 type DependencyDirection = 'blocking' | 'blocked';
 type CreateDependentIssueHandler = (
@@ -194,7 +195,6 @@ export default function DetailPanel({
   today.setHours(0, 0, 0, 0);
   const daysLeft = Math.round((dueDate.getTime() - today.getTime()) / 86400000);
   const overdue = daysLeft < 0;
-  const statusDotColor = statusDotColors[task.statusType] || '#52525b';
   const priorityColor = priorityColors[task.priority] || '#52525b';
 
   const ctx = globalEditContext;
@@ -215,7 +215,7 @@ export default function DetailPanel({
   const statusOptions: DropdownOption[] = teamStates.map((s) => ({
     value: s.id,
     label: s.name,
-    icon: priorityDot(statusDotColors[s.type] || '#52525b'),
+    icon: <StatusIcon statusType={s.type} statusName={s.name} size={14} />,
   }));
   const currentStateId = task.stateId || teamStates.find((s) => s.name === task.status)?.id || '';
 
@@ -397,9 +397,7 @@ export default function DetailPanel({
                     value={currentStateId}
                     options={statusOptions}
                     placeholder="Status"
-                    placeholderIcon={
-                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: statusDotColor }} />
-                    }
+                    placeholderIcon={<StatusIcon statusType={task.statusType} statusName={task.status} size={14} />}
                     onChange={handleStatusChange}
                     required
                     className="max-w-[200px]"
@@ -411,13 +409,13 @@ export default function DetailPanel({
                     className="inline-flex items-center gap-1.5 text-xs font-medium text-text-secondary px-2 py-1 rounded-md border border-border-secondary hover:border-accent hover:text-accent cursor-pointer"
                     title="Workflow states failed to load — click to retry"
                   >
-                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: statusDotColor }} />
+                    <StatusIcon statusType={task.statusType} statusName={task.status} size={14} />
                     {task.status}
                     <span className="text-[10px] text-text-muted">(retry)</span>
                   </button>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 text-xs font-medium text-text-primary">
-                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: statusDotColor }} />
+                    <StatusIcon statusType={task.statusType} statusName={task.status} size={14} />
                     {task.status}
                   </span>
                 )}

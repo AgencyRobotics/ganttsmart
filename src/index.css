@@ -131,22 +131,24 @@ button, select, input, a {
   pointer-events: none;
 }
 
-/* Priority-specific bar backgrounds */
-.gantt-bar.bar-urgent { background: #ef4444; }
-.gantt-bar.bar-high { background: #f97316; }
-.gantt-bar.bar-medium { background: #f59e0b; }
-.gantt-bar.bar-low { background: #22c55e; }
-.gantt-bar.bar-none { background: #a1a1aa; }
+/* Status-specific bar backgrounds (fallback — inline styles set the gradients) */
+.gantt-bar.bar-backlog { background: #3f3f46; }
+.gantt-bar.bar-todo { background: #a1a1aa; }
+.gantt-bar.bar-inProgress { background: #e2b203; }
+.gantt-bar.bar-inReview { background: #22c55e; }
+.gantt-bar.bar-canceled { background: #9ca3af; }
+.gantt-bar.bar-triage { background: #f97316; }
 .gantt-bar.bar-overdue { background: #ef4444; }
-.gantt-bar.bar-done { background: #22c55e; }
+.gantt-bar.bar-done { background: #5e6ad2; }
 
-html.light .gantt-bar.bar-urgent { background: #dc2626; }
-html.light .gantt-bar.bar-high { background: #ea580c; }
-html.light .gantt-bar.bar-medium { background: #d97706; }
-html.light .gantt-bar.bar-low { background: #16a34a; }
-html.light .gantt-bar.bar-none { background: #71717a; }
+html.light .gantt-bar.bar-backlog { background: #3f3f46; }
+html.light .gantt-bar.bar-todo { background: #71717a; }
+html.light .gantt-bar.bar-inProgress { background: #ca8a04; }
+html.light .gantt-bar.bar-inReview { background: #16a34a; }
+html.light .gantt-bar.bar-canceled { background: #71717a; }
+html.light .gantt-bar.bar-triage { background: #ea580c; }
 html.light .gantt-bar.bar-overdue { background: #dc2626; }
-html.light .gantt-bar.bar-done { background: #16a34a; }
+html.light .gantt-bar.bar-done { background: #4f5bc0; }
 html.light .gantt-bar::before { background: rgba(255,255,255,0.22); }
 
 /* Focus-visible for keyboard accessibility */

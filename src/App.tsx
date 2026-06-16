@@ -44,7 +44,6 @@ function GanttView({
     projectMetas,
     projectName,
     tasks,
-    doneTasks,
     unscheduledTasks,
     filteredTasks,
     milestones,
@@ -255,7 +254,6 @@ function GanttView({
       <div className="flex-1 min-h-0 overflow-hidden print:overflow-visible">
         <GanttChart
           tasks={filteredTasks}
-          doneTasks={doneTasks}
           unscheduledTasks={unscheduledTasks}
           milestones={milestones}
           loading={loading}

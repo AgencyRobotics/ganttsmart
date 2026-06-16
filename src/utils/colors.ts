@@ -31,6 +31,30 @@ export const barShadows: Record<string, string> = {
   none: '0 2px 8px rgba(82,82,91,0.2)',
 };
 
+// Status-based bar colors — bars are tinted by workflow state (not priority),
+// keyed by the same StatusIconKind the status icons use so bars and icons agree:
+//   backlog → dark grey · todo → light grey · inProgress → yellow ·
+//   inReview → green · done → blue.
+export const statusBarGradients: Record<string, string> = {
+  backlog: 'linear-gradient(135deg, #27272a, #52525b)',
+  todo: 'linear-gradient(135deg, #71717a, #a1a1aa)',
+  triage: 'linear-gradient(135deg, #c2410c, #f97316)',
+  inProgress: 'linear-gradient(135deg, #b8920a, #e2b203)',
+  inReview: 'linear-gradient(135deg, #16a34a, #22c55e)',
+  done: 'linear-gradient(135deg, #4f5bc0, #5e6ad2)',
+  canceled: 'linear-gradient(135deg, #6b7280, #9ca3af)',
+};
+
+export const statusBarShadows: Record<string, string> = {
+  backlog: '0 2px 8px rgba(63,63,70,0.3)',
+  todo: '0 2px 8px rgba(161,161,170,0.25)',
+  triage: '0 2px 8px rgba(249,115,22,0.3)',
+  inProgress: '0 2px 8px rgba(226,178,3,0.3)',
+  inReview: '0 2px 8px rgba(34,197,94,0.25)',
+  done: '0 2px 8px rgba(94,106,210,0.3)',
+  canceled: '0 2px 8px rgba(156,163,175,0.2)',
+};
+
 export const idColors: Record<string, string> = {
   urgent: '#ef4444',
   high: '#f97316',

@@ -14,6 +14,7 @@ import DependencyArrows from './DependencyArrows';
 import ProjectArrows from './ProjectArrows';
 import ProjectBar from './ProjectBar';
 import GanttRow from './GanttRow';
+import StatusIcon from './StatusIcon';
 
 interface Props {
   tasks: Task[];
@@ -1155,6 +1156,14 @@ function GroupRows({
             <div className="flex items-center gap-2 sticky left-4 w-fit">
               {chevron}
               {groupBy === 'assignee' && <Avatar name={group.label} size="sm"/>}
+              {groupBy === 'status' && group.tasks[0] && (
+                <StatusIcon
+                  statusType={group.tasks[0].statusType}
+                  statusName={group.label}
+                  size={14}
+                  title={group.label}
+                />
+              )}
               {group.label}
               <span className="text-text-muted font-normal">({group.tasks.length})</span>
             </div>

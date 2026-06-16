@@ -30,7 +30,9 @@ export function useSharedData(shareToken: string) {
   const statuses = useMemo(() => [...new Set(tasks.map((t) => t.status))].sort(), [tasks]);
 
   const filteredTasks = useMemo(() => {
-    return tasks.filter((t) => {
+    // Completed issues sit on the board; cancelled issues are hidden entirely.
+    return [...tasks, ...doneTasks].filter((t) => {
+      if (t.statusType === 'canceled') return false;
       if (!filters.priorities.has(t.priorityVal)) return false;
       if (filters.assignee && t.assignee !== filters.assignee) return false;
       if (filters.status && t.status !== filters.status) return false;
@@ -40,7 +42,7 @@ export function useSharedData(shareToken: string) {
       }
       return true;
     });
-  }, [tasks, filters]);
+  }, [tasks, doneTasks, filters]);
 
   const fetchSharedData = useCallback(
     async (password?: string) => {
